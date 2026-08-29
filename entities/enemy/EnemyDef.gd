@@ -17,6 +17,10 @@ enum Role { MELEE, RANGED, SUPPORT, SUMMONER, DISRUPTOR, CHARGER, BOMBER, SHIELD
 @export var display_name : String     = ""
 @export var rank: Rank = Rank.MOB
 @export var role: Role = Role.MELEE
+@export_multiline var description := ""
+@export var pattern_names: Array[String] = []
+@export_multiline var counterplay := ""
+@export_range(1, 10) var spawn_tier := 1
 @export var behavior_modules: Array[Resource] = []
 @export var status_immunity_tags: Array[StringName] = []
 

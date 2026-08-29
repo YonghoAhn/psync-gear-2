@@ -5,6 +5,10 @@ enum ArenaShape { CIRCLE, POLYGON }
 
 @export var id: StringName = &""
 @export var display_name := ""
+@export_multiline var description := ""
+@export_multiline var survival_rules := ""
+@export var environment_features: Array[String] = []
+@export var enemy_roster_summary: Array[String] = []
 @export var arena_shape: ArenaShape = ArenaShape.CIRCLE
 @export_range(3, 30) var max_depth := 6
 @export_range(5, 100) var max_total_nodes := 20

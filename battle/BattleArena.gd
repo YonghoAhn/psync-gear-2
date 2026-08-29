@@ -3,9 +3,11 @@ class_name BattleArena
 
 signal completed(success: bool, summary: Dictionary)
 signal survivor_level_up_requested(level: int, xp: float, next_xp: float)
+signal survivor_currency_changed(amount: int, total: int)
 
 const WORLD_RECT := Rect2(0, 0, 2560, 1440)
 const SPAWN_WARNING_DURATION := 1.0
+const COMBO_FAMILY_DAMAGE_STEP := 0.05
 
 var node_type: MapNode.Type
 var player: BattlePlayer
@@ -32,6 +34,7 @@ var survivor_power_multiplier := 1.0
 var survivor_attack_speed_multiplier := 1.0
 var survivor_xp_multiplier := 1.0
 var survivor_relics: Array[Dictionary] = []
+var survivor_currency := 0
 var survivor_level_up_pending := false
 var survivor_boss_queued := false
 var target_resolver := BattleTargetResolver.new()
@@ -42,7 +45,13 @@ var active_card_spawns: Dictionary = {}
 var flaming_weapon_left := 0.0
 var enemy_defs: Array[EnemyDef] = []
 var named_enemy_defs: Array[EnemyDef] = []
+var boss_enemy_defs: Array[EnemyDef] = []
 var family_cast_counts: Dictionary = {}
+var combo_last_families: Dictionary = {}
+var combo_family_chain_counts: Dictionary = {}
+var combo_family_damage_multipliers: Dictionary = {}
+var queued_survivor_deck: DeckState
+var queued_survivor_cycle: CycleState
 
 func initialize(type: MapNode.Type, character: CharacterDef, run_deck: DeckState, run_cycle: CycleState, difficulty_scale := 1.0, run_rng: RunRng = null) -> void:
 	node_type = type
@@ -54,7 +63,8 @@ func initialize(type: MapNode.Type, character: CharacterDef, run_deck: DeckState
 	_build_arena(character)
 	_configure_card_system()
 	if type == MapNode.Type.BOSS:
-		spawn_enemy(EnemyDef.Role.DISRUPTOR, true)
+		var boss := boss_enemy_defs[0] if not boss_enemy_defs.is_empty() else null
+		spawn_enemy(EnemyDef.Role.DISRUPTOR, true, boss)
 	elif type == MapNode.Type.ELITE:
 		var named := named_enemy_defs[rng.randi_range(&"enemy_roster", 0, named_enemy_defs.size() - 1)]
 		spawn_enemy(named.role, false, named)
@@ -67,10 +77,12 @@ func initialize(type: MapNode.Type, character: CharacterDef, run_deck: DeckState
 	runner.configure(deck, cycle, _execute_card)
 	runner.card_executed.connect(_on_card_executed)
 	runner.combo_changed.connect(_on_combo_changed)
+	runner.configuration_applied.connect(_on_runner_configuration_applied)
 	runner.start()
 
-func initialize_survivor(character: CharacterDef, run_deck: DeckState, run_cycle: CycleState, run_rng: RunRng = null) -> void:
+func initialize_survivor(character: CharacterDef, run_deck: DeckState, run_cycle: CycleState, run_rng: RunRng = null, starting_currency := 0) -> void:
 	survivor_mode = true
+	survivor_currency = maxi(0, starting_currency)
 	node_type = MapNode.Type.COMBAT
 	deck = run_deck
 	cycle = run_cycle
@@ -86,8 +98,10 @@ func initialize_survivor(character: CharacterDef, run_deck: DeckState, run_cycle
 	runner.configure(deck, cycle, _execute_card)
 	runner.card_executed.connect(_on_card_executed)
 	runner.combo_changed.connect(_on_combo_changed)
+	runner.configuration_applied.connect(_on_runner_configuration_applied)
 	runner.start()
 	hud.set_survivor_progress(survivor_progression.level, survivor_progression.xp, survivor_progression.next_xp, elapsed, kills)
+	hud.set_currency(survivor_currency)
 
 
 func _build_arena(character: CharacterDef) -> void:
@@ -144,6 +158,7 @@ func _process(delta: float) -> void:
 			spawn_timer = maxf(1.55, 3.45 - elapsed * 0.025)
 	if survivor_mode:
 		hud.set_survivor_progress(survivor_progression.level, survivor_progression.xp, survivor_progression.next_xp, elapsed, kills)
+		hud.set_currency(survivor_currency)
 	else:
 		hud.set_time(duration - elapsed)
 		hud.set_objective(kills)
@@ -236,12 +251,33 @@ func _execute_card(card: CardInstance) -> void:
 		return
 	var context := card_executor.build_context(card)
 	var family := card.card_def.family_id
+	var combo_index := runner.current_position().x
+	var combo_id := cycle.combos[combo_index].id if cycle != null and combo_index >= 0 and combo_index < cycle.combos.size() else StringName("combo_%d" % combo_index)
+	var family_multiplier := _advance_combo_family_chain(combo_id, family)
+	context["power"] = float(context["power"]) * family_multiplier
+	context["combo_family_multiplier"] = family_multiplier
+	context["combo_family_chain_count"] = int(combo_family_chain_counts.get(combo_id, 1))
 	family_cast_counts[family] = int(family_cast_counts.get(family, 0)) + 1
 	context["echo"] = family == &"sword" and int(family_tiers.get(family, 0)) >= 2 and int(family_cast_counts[family]) % 3 == 0
 	if card.card_def.effect_delay <= 0.0:
 		_resolve_card_effect(card, context)
 	else:
 		_queue_card_effect(card, context)
+
+
+func _advance_combo_family_chain(combo_id: StringName, family_id: StringName) -> float:
+	var chain_count := 1
+	if StringName(combo_last_families.get(combo_id, &"")) == family_id:
+		chain_count = int(combo_family_chain_counts.get(combo_id, 0)) + 1
+	combo_last_families[combo_id] = family_id
+	combo_family_chain_counts[combo_id] = chain_count
+	var multiplier := 1.0 + float(chain_count - 1) * COMBO_FAMILY_DAMAGE_STEP
+	combo_family_damage_multipliers[combo_id] = multiplier
+	return multiplier
+
+
+func combo_family_damage_multiplier(combo_id: StringName) -> float:
+	return float(combo_family_damage_multipliers.get(combo_id, 1.0))
 
 
 func _queue_card_effect(card: CardInstance, context: Dictionary) -> void:
@@ -359,6 +395,7 @@ func _configure_card_system() -> void:
 	status_caps[&"burning"] = 5
 	enemy_defs = ContentFactory.enemies()
 	named_enemy_defs = ContentFactory.named_enemies()
+	boss_enemy_defs = ContentFactory.bosses()
 	if int(family_tiers.get(&"fire", 0)) >= 2:
 		status_caps[&"burning"] = 7
 	target_resolver.setup(self, rng)
@@ -457,6 +494,10 @@ func _on_combo_changed(combo_index: int) -> void:
 func _on_enemy_defeated(enemy: BattleEnemy) -> void:
 	kills += 1
 	if survivor_mode:
+		var currency_gain := 10 if enemy.is_boss else 3 if enemy.is_named else 1
+		survivor_currency += currency_gain
+		hud.set_currency(survivor_currency)
+		survivor_currency_changed.emit(currency_gain, survivor_currency)
 		var xp_amount := (5.0 if enemy.is_boss else 3.0 if enemy.is_named else 1.0) * survivor_xp_multiplier
 		var levels_gained := survivor_progression.add_xp(xp_amount)
 		if levels_gained > 0 and not survivor_level_up_pending:
@@ -466,18 +507,25 @@ func _on_enemy_defeated(enemy: BattleEnemy) -> void:
 	elif enemy.is_boss:
 		_finish(true)
 
-func refresh_survivor_cycle() -> bool:
-	if not survivor_mode:
+func queue_survivor_cycle(new_deck: DeckState, new_cycle: CycleState) -> bool:
+	if not survivor_mode or not ComboValidator.validate(new_deck, new_cycle)["valid"]:
 		return false
-	if not ComboValidator.validate(deck, cycle)["valid"]:
-		return false
-	runner.stop()
+	queued_survivor_deck = new_deck
+	queued_survivor_cycle = new_cycle
+	if runner.queue_configuration(new_deck, new_cycle):
+		return true
+	queued_survivor_deck = null
+	queued_survivor_cycle = null
+	return false
+
+
+func _on_runner_configuration_applied(applied_deck: DeckState, applied_cycle: CycleState) -> void:
+	deck = applied_deck
+	cycle = applied_cycle
+	queued_survivor_deck = null
+	queued_survivor_cycle = null
 	_configure_card_system()
-	if not runner.configure(deck, cycle, _execute_card):
-		return false
-	runner.start()
 	hud.combo_rail.setup(deck, cycle)
-	return true
 
 
 func apply_survivor_relic(relic: Dictionary) -> void:
@@ -512,7 +560,8 @@ func resume_survivor_after_levelup() -> void:
 	if survivor_boss_queued:
 		survivor_boss_queued = false
 		if survivor_progression.level % 10 == 0:
-			spawn_enemy(EnemyDef.Role.DISRUPTOR, true)
+			var boss := boss_enemy_defs[0] if not boss_enemy_defs.is_empty() else null
+			spawn_enemy(EnemyDef.Role.DISRUPTOR, true, boss)
 		else:
 			var named := named_enemy_defs[rng.randi_range(&"enemy_roster", 0, named_enemy_defs.size() - 1)]
 			spawn_enemy(named.role, false, named)
@@ -538,5 +587,6 @@ func _finish(success: bool) -> void:
 		"survivor_mode": survivor_mode,
 		"level": survivor_progression.level if survivor_mode else 0,
 		"relics": survivor_relics.size(),
+		"currency": survivor_currency,
 		"reason": "체력 0" if not success else "",
 	})

@@ -15,7 +15,7 @@ var current_page := 0
 
 
 func _ready() -> void:
-	mouse_filter = Control.MOUSE_FILTER_STOP
+	mouse_filter = Control.MOUSE_FILTER_PASS
 	mouse_default_cursor_shape = Control.CURSOR_POINTING_HAND
 	set_process(true)
 	queue_redraw()
@@ -81,9 +81,7 @@ func _page_count() -> int:
 
 
 func _draw() -> void:
-	draw_rect(Rect2(7, 7, size.x - 7, size.y - 7), Color(ArtDirection.CYAN.r, ArtDirection.CYAN.g, ArtDirection.CYAN.b, 0.22))
-	draw_rect(Rect2(Vector2.ZERO, size - Vector2(7, 7)), Color(ArtDirection.INK.r, ArtDirection.INK.g, ArtDirection.INK.b, 0.96))
-	draw_rect(Rect2(Vector2.ZERO, size - Vector2(7, 7)), ArtDirection.MAGENTA, false, 3.0)
+
 	draw_string(ThemeDB.fallback_font, Vector2(14, 20), "PARALLEL COMBO // CARD POSITION", HORIZONTAL_ALIGNMENT_LEFT, -1, 11, ArtDirection.PAPER)
 
 	var page_count := _page_count()

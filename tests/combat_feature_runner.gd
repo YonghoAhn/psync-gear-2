@@ -102,6 +102,29 @@ func _run() -> void:
 	near.take_damage(0.0, {"status_id": &"shocked", "status_stacks": 1, "status_duration": 2.0, "source_power": 20.0, "origin": origin})
 	_expect(not near.has_status(&"wet") and cluster_a.hp < chain_hp, "chain shock must consume wet and damage nearby enemies")
 
+	for enemy_node in get_nodes_in_group(&"battle_enemy"):
+		var distant_enemy := enemy_node as BattleEnemy
+		if is_instance_valid(distant_enemy):
+			distant_enemy.global_position = origin + Vector2(2000.0, 2000.0)
+	var empty_swing := CardInstance.create(_card(cards, &"slash"), &"no_target_test")
+	var empty_context := arena.card_executor.build_context(empty_swing)
+	_expect(not bool(empty_context.get("has_target", true)), "short-range attack must detect that no enemy is inside its hit range")
+	var friendly_vfx_before := arena.get_children().filter(func(node): return node is CombatVfx).size()
+	arena.combo_last_families.clear()
+	arena.combo_family_chain_counts.clear()
+	arena.combo_family_damage_multipliers.clear()
+	var active_combo_index := arena.runner.current_position().x
+	var active_combo_id := arena.cycle.combos[active_combo_index].id
+	arena._execute_card(empty_swing)
+	var friendly_vfx_after := arena.get_children().filter(func(node): return node is CombatVfx).size()
+	_expect(friendly_vfx_after > friendly_vfx_before, "attack animation must still play when no target can be damaged")
+	_expect(is_equal_approx(arena.combo_family_damage_multiplier(active_combo_id), 1.0), "first executed family card must use base damage")
+	arena._execute_card(empty_swing)
+	_expect(is_equal_approx(arena.combo_family_damage_multiplier(active_combo_id), 1.05), "live card execution must apply the consecutive-family multiplier")
+	var different_family := CardInstance.create(_card(cards, &"water_spray"), &"different_family_test")
+	arena._execute_card(different_family)
+	_expect(is_equal_approx(arena.combo_family_damage_multiplier(active_combo_id), 1.0), "live card execution must reset the multiplier when its family changes")
+
 	var turret_card := CardInstance.create(_card(cards, &"trench_trooper"), &"test")
 	var construct_context := {"origin": origin, "source_power": 12.0}
 	arena.spawn_card_construct(turret_card, origin + Vector2(50, 50), 12.0, ArtDirection.VIOLET, construct_context)

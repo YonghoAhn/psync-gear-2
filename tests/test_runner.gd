@@ -67,6 +67,7 @@ func _run_registry_tests() -> void:
 func _run_session_tests() -> void:
 	var original := RunSession.create(77, &"foundry", &"vanguard", &"sword")
 	original.add_currency(120)
+	original.combo_slot_modifier = 1
 	suite.expect_true(original.spend_currency(35), "affordable purchase should succeed")
 	suite.expect_true(not original.spend_currency(999), "unaffordable purchase should fail")
 	original.visit_node(&"node_1")
@@ -74,16 +75,17 @@ func _run_session_tests() -> void:
 	suite.expect_eq(restored.currency, 85, "currency must survive serialization")
 	suite.expect_eq(restored.map_id, &"foundry", "map id must survive serialization")
 	suite.expect_eq(restored.visited_node_ids, [&"node_1"], "visited nodes must survive serialization")
+	suite.expect_eq(restored.combo_slot_modifier, 1, "combo slot relic modifier must survive serialization")
 
 
 func _run_flow_tests() -> void:
 	var flow := RunFlowController.new()
 	suite.expect_true(flow.transition(RunFlowController.State.MAIN_MENU), "boot should enter main menu")
 	suite.expect_true(not flow.transition(RunFlowController.State.ENCOUNTER), "invalid state jump must be rejected")
-	suite.expect_true(flow.transition(RunFlowController.State.MAP_SELECT), "main menu should enter map select")
-	suite.expect_true(flow.transition(RunFlowController.State.CHARACTER_SELECT), "map select should enter character select")
+	suite.expect_true(flow.transition(RunFlowController.State.CHARACTER_SELECT), "main menu should enter character select")
 	suite.expect_true(flow.transition(RunFlowController.State.STARTING_FAMILY_SELECT), "character select should enter family select")
-	suite.expect_true(flow.transition(RunFlowController.State.RUN_MAP), "family select should enter run map")
+	suite.expect_true(flow.transition(RunFlowController.State.MAP_SELECT), "family select should enter map select")
+	suite.expect_true(flow.transition(RunFlowController.State.RUN_MAP), "map select should enter the survival run")
 
 
 func _card(id: StringName, family: StringName, delay: float = 0.1, neutral: bool = false) -> CardInstance:
@@ -115,6 +117,15 @@ func _run_combo_tests() -> void:
 	suite.expect_true(ComboValidator.validate(deck, cycle)["valid"], "legacy cost limit must not reject a complete assignment")
 	combo.card_instance_ids.append(a.instance_id)
 	suite.expect_true(not ComboValidator.validate(deck, cycle)["valid"], "duplicate card assignment must fail")
+
+	var arena := BattleArena.new()
+	suite.expect_true(is_equal_approx(arena._advance_combo_family_chain(&"combo_a", &"fire"), 1.0), "first card in a family chain must deal base damage")
+	suite.expect_true(is_equal_approx(arena._advance_combo_family_chain(&"combo_a", &"fire"), 1.05), "second consecutive same-family card must gain five percentage points")
+	suite.expect_true(is_equal_approx(arena._advance_combo_family_chain(&"combo_a", &"fire"), 1.10), "third consecutive same-family card must gain ten percentage points")
+	suite.expect_true(is_equal_approx(arena._advance_combo_family_chain(&"combo_b", &"fire"), 1.0), "family chains must be tracked independently per combo lane")
+	suite.expect_true(is_equal_approx(arena._advance_combo_family_chain(&"combo_a", &"water"), 1.0), "changing card family must reset the damage multiplier to one")
+	suite.expect_true(is_equal_approx(arena._advance_combo_family_chain(&"combo_a", &"water"), 1.05), "a new family must start its own consecutive chain")
+	arena.free()
 
 
 func _run_cycle_tests() -> void:
@@ -175,6 +186,37 @@ func _run_cycle_tests() -> void:
 	suite.expect_eq(heavy_executed, [&"cycle_heavy"], "heavy card cooldown must continue without dispatching followup early")
 	heavy_runner.tick(4.01)
 	suite.expect_eq(heavy_executed, [&"cycle_heavy", &"cycle_followup"], "followup must dispatch when heavy cooldown expires")
+
+	var old_a := _card(&"old_a", &"sword", 0.2)
+	var old_b := _card(&"old_b", &"sword", 0.3)
+	var old_c := _card(&"old_c", &"water", 0.5)
+	var old_deck := _deck_with([old_a, old_b, old_c])
+	var old_lane_a := ComboState.create(&"old_lane_a")
+	old_lane_a.card_instance_ids.assign([old_a.instance_id, old_b.instance_id])
+	var old_lane_b := ComboState.create(&"old_lane_b")
+	old_lane_b.card_instance_ids.append(old_c.instance_id)
+	var old_cycle := CycleState.new()
+	old_cycle.combos.assign([old_lane_a, old_lane_b])
+	var replacement := _card(&"replacement", &"fire", 0.1)
+	var replacement_deck := _deck_with([replacement])
+	var replacement_lane := ComboState.create(&"replacement_lane")
+	replacement_lane.card_instance_ids.append(replacement.instance_id)
+	var replacement_cycle := CycleState.new()
+	replacement_cycle.combos.append(replacement_lane)
+	var deferred_executed: Array[StringName] = []
+	var deferred_runner := CycleRunner.new()
+	suite.expect_true(deferred_runner.configure(old_deck, old_cycle, func(card): deferred_executed.append(card.card_def.id)), "deferred cycle should configure")
+	deferred_runner.start()
+	deferred_runner.tick(0.0)
+	suite.expect_eq(deferred_executed, [&"old_a", &"old_c"], "old lanes must already be executing before a level-up edit")
+	suite.expect_true(deferred_runner.queue_configuration(replacement_deck, replacement_cycle), "valid edited deck must queue")
+	deferred_runner.tick(0.2)
+	suite.expect_eq(deferred_executed, [&"old_a", &"old_c", &"old_b"], "queued edits must not interrupt the current lane cycle")
+	deferred_runner.tick(0.31)
+	suite.expect_true(not deferred_runner.has_pending_configuration(), "edited deck must apply only after every old lane reaches its cycle boundary")
+	suite.expect_eq(deferred_executed, [&"old_a", &"old_c", &"old_b"], "replacement first card must wait until the tick after configuration is applied")
+	deferred_runner.tick(0.0)
+	suite.expect_eq(deferred_executed, [&"old_a", &"old_c", &"old_b", &"replacement"], "edited deck must begin from its first card on the following execution")
 
 
 func _run_synergy_tests() -> void:
@@ -439,6 +481,9 @@ func _run_content_tests() -> void:
 	suite.expect_true(meteor.base_power >= 100.0, "meteor must deliver ultimate-class payoff")
 	suite.expect_true(characters.any(func(character): return character.style == CharacterDef.Style.GENERAL), "content must include a general character")
 	suite.expect_true(characters.any(func(character): return character.style == CharacterDef.Style.GIMMICK), "content must include a gimmick character")
+	suite.expect_true(characters[0].base_combo_slots != characters[1].base_combo_slots, "playable characters must be able to define different base combo slot counts")
+	suite.expect_eq(characters[1].combo_slot_count(1), characters[1].base_combo_slots + 1, "future relic modifiers must adjust the character combo slot count")
+	suite.expect_eq(characters[1].combo_slot_count(-99), 1, "combo slot modifiers must retain at least one lane")
 	var slash := cards.filter(func(card): return card.id == &"slash")[0] as CardDef
 	var fireball := cards.filter(func(card): return card.id == &"fireball")[0] as CardDef
 	suite.expect_true(slash.max_range > 0.0 and slash.max_range < 180.0, "melee slash must have a short finite maximum range")
@@ -448,9 +493,9 @@ func _run_content_tests() -> void:
 	for character in characters:
 		for family in character.allowed_starting_families:
 			var deck_for_family := ContentFactory.starting_deck(family, cards)
-			var cycle_for_family := ContentFactory.default_cycle(deck_for_family)
+			var cycle_for_family := ContentFactory.default_cycle(deck_for_family, character.combo_slot_count())
 			suite.expect_true(ComboValidator.validate(deck_for_family, cycle_for_family)["valid"], "every starting family must produce a valid cycle")
-			suite.expect_eq(cycle_for_family.combos.size(), mini(3, deck_for_family.cards.size()), "starting decks must populate up to three parallel combo lanes")
+			suite.expect_eq(cycle_for_family.combos.size(), mini(character.base_combo_slots, deck_for_family.cards.size()), "starting combo lane count must come from the selected character")
 			suite.expect_eq(deck_for_family.cards.size(), 4, "every starting family must provide four opening cards")
 
 func _run_survivor_tests() -> void:
@@ -463,10 +508,14 @@ func _run_survivor_tests() -> void:
 	suite.expect_eq(progression.level, 2, "survivor level must advance")
 	suite.expect_eq(progression.xp, 1.0, "overflow XP must carry into the next level")
 	suite.expect_eq(progression.next_xp, 9.0, "survivor XP threshold must scale per level")
-	var survivor_session := RunSession.create(44, &"foundry", &"vanguard", &"sword", RunSession.Mode.SURVIVOR_AB)
+	suite.expect_eq(SurvivorProgression.threshold_for(3), 11.0, "third survivor level must use the exponential XP curve")
+	var early_growth := SurvivorProgression.threshold_for(3) - SurvivorProgression.threshold_for(2)
+	var late_growth := SurvivorProgression.threshold_for(9) - SurvivorProgression.threshold_for(8)
+	suite.expect_true(late_growth > early_growth, "XP requirements must accelerate rather than increase linearly")
+	var survivor_session := RunSession.create(44, &"foundry", &"vanguard", &"sword", RunSession.Mode.SURVIVOR)
 	survivor_session.relic_ids.append(&"vital_core")
 	var restored := RunSession.from_dict(survivor_session.to_dict())
-	suite.expect_eq(restored.mode, RunSession.Mode.SURVIVOR_AB, "A/B survivor mode must survive session serialization")
+	suite.expect_eq(restored.mode, RunSession.Mode.SURVIVOR, "survivor mode must survive session serialization")
 	suite.expect_true(restored.relic_ids.has(&"vital_core"), "survivor relic ownership must survive session serialization")
 	var relics := ContentFactory.survivor_relics()
 	suite.expect_true(relics.size() >= 6, "survivor reward pool must provide a varied relic set")
@@ -475,13 +524,16 @@ func _run_survivor_tests() -> void:
 func _run_persistence_tests() -> void:
 	var session := RunSession.create(222, &"foundry", &"vanguard", &"sword")
 	session.add_currency(75)
+	session.combo_slot_modifier = -1
 	var restored := SaveCodec.decode_run(SaveCodec.encode_run(session))
 	suite.expect_true(restored != null, "encoded run must decode")
 	suite.expect_eq(restored.currency, 75, "run save codec must preserve currency")
+	suite.expect_eq(restored.combo_slot_modifier, -1, "run save codec must preserve combo slot modifiers")
 	var legacy := {"seed": 9, "character_id": "legacy", "archetype_id": "fire", "currency": 12, "deck_state": []}
 	var migrated := SaveCodec.decode_run(JSON.stringify(legacy))
 	suite.expect_eq(migrated.starting_family_id, &"fire", "legacy archetype id must migrate to family id")
 	suite.expect_eq(migrated.version, SaveCodec.CURRENT_VERSION, "legacy save must migrate to current version")
+	suite.expect_eq(migrated.combo_slot_modifier, 0, "legacy saves must receive a neutral combo slot modifier")
 	var profile := UnlockProfile.new()
 	profile.unlock("characters", &"conduit")
 	var decoded_profile := SaveCodec.decode_unlocks(SaveCodec.encode_unlocks(profile))

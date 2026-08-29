@@ -74,6 +74,7 @@ static func characters() -> Array[CharacterDef]:
 	vanguard.base_max_hp = 125.0
 	vanguard.base_defense = 15.0
 	vanguard.allowed_starting_families.assign([&"sword", &"spear", &"blunt"])
+	vanguard.base_combo_slots = 3
 	var sword_trait := CharacterTrait.new()
 	sword_trait.id = &"weapon_training"
 	sword_trait.type = CharacterTrait.Type.CARD_FAMILY
@@ -89,6 +90,7 @@ static func characters() -> Array[CharacterDef]:
 	conduit.base_max_hp = 90.0
 	conduit.base_magic_power = 16.0
 	conduit.allowed_starting_families.assign([&"fire", &"water", &"poison"])
+	conduit.base_combo_slots = 2
 	var flow_trait := CharacterTrait.new()
 	flow_trait.id = &"elemental_flow"
 	flow_trait.type = CharacterTrait.Type.SPECIAL_RULE
@@ -131,6 +133,20 @@ static func named_enemies() -> Array[EnemyDef]:
 	]
 
 
+static func bosses() -> Array[EnemyDef]:
+	return [
+		_enemy(&"foundry_core", "제련소 코어", EnemyDef.Role.DISRUPTOR, EnemyDef.Rank.BOSS, 420.0, 14.0, 70.0),
+	]
+
+
+static func all_enemies() -> Array[EnemyDef]:
+	var result: Array[EnemyDef] = []
+	result.append_array(enemies())
+	result.append_array(named_enemies())
+	result.append_array(bosses())
+	return result
+
+
 static func _enemy(id: StringName, name: String, role: EnemyDef.Role, rank: EnemyDef.Rank, hp: float, power: float, speed: float) -> EnemyDef:
 	var enemy := EnemyDef.new()
 	enemy.id = id
@@ -142,17 +158,55 @@ static func _enemy(id: StringName, name: String, role: EnemyDef.Role, rank: Enem
 	enemy.base_move_speed = speed
 	enemy.is_named = rank == EnemyDef.Rank.NAMED
 	enemy.named_scale = 1.0
+	var codex := _enemy_codex_data(id)
+	enemy.description = codex.get("description", "")
+	enemy.pattern_names.assign(codex.get("patterns", []))
+	enemy.counterplay = codex.get("counterplay", "")
+	enemy.spawn_tier = int(codex.get("tier", 1))
 	return enemy
+
+
+static func _enemy_codex_data(id: StringName) -> Dictionary:
+	match id:
+		&"furnace_hound":
+			return {"description": "녹아내린 장갑판을 두른 근접 추적체. 플레이어를 끝까지 쫓아와 빠른 휘두르기로 진형을 흔든다.", "patterns": ["근접 추적", "용광로 발톱 휘두르기"], "counterplay": "사거리 밖에서 처리하거나 대시로 휘두르기 예고선을 가로질러 벗어난다.", "tier": 1}
+		&"rivet_gunner":
+			return {"description": "안전거리를 유지하며 리벳탄을 점사하는 원거리 사수. 다른 적 뒤에서 지속적으로 이동을 강요한다.", "patterns": ["거리 유지", "3연속 조준 점사"], "counterplay": "점사 방향이 고정된 순간 옆으로 이동하고, 지원형보다 먼저 시야에서 제거한다.", "tier": 1}
+		&"rolling_charger":
+			return {"description": "압연 롤러를 전면에 단 돌격기. 직선 경로를 예고한 뒤 고속으로 전장을 가른다.", "patterns": ["직선 돌진 예고", "고속 압연 돌진"], "counterplay": "예고선에 수직으로 대시하면 긴 회복 시간 동안 안전하게 공격할 수 있다.", "tier": 2}
+		&"boiler_bug":
+			return {"description": "과압 보일러를 짊어진 자폭 개체. 충분히 접근하면 넓은 폭발 범위를 표시하고 폭주한다.", "patterns": ["근접 접근", "범위 예고 자폭"], "counterplay": "폭발 예고가 시작되면 즉시 이탈하거나 넉백으로 다른 적 무리에 밀어 넣는다.", "tier": 2}
+		&"armored_wall":
+			return {"description": "전면 장갑으로 피해를 흘리는 중장 방벽. 느리지만 길목을 막고 다른 적을 보호한다.", "patterns": ["전방 피해 감소", "방패 충격"], "counterplay": "측면이나 후방을 노리거나 관통·장판 공격으로 방벽 뒤의 적을 함께 처리한다.", "tier": 2}
+		&"repair_drone":
+			return {"description": "주변 기계 개체를 수리하는 지원 드론. 직접 화력은 낮지만 오래 방치할수록 전투가 길어진다.", "patterns": ["거리 유지", "주변 적 회복 펄스"], "counterplay": "밀집 지역 우선 카드나 원거리 단일 공격으로 가장 먼저 제거한다.", "tier": 3}
+		&"casting_incubator":
+			return {"description": "주조 틀에서 소형 전투 개체를 계속 찍어내는 배양기. 화면의 적 밀도를 폭발적으로 높인다.", "patterns": ["거리 유지", "소형 적 2기 소환"], "counterplay": "소환수가 쌓이기 전에 집중 공격하고, 광역기는 소환 직후에 맞춰 사용한다.", "tier": 3}
+		&"slag_shaman":
+			return {"description": "폐슬래그를 주술 매개로 사용하는 방해형 적. 플레이어 위치에 지속 장판을 깔아 이동 공간을 줄인다.", "patterns": ["거리 유지", "추적 둔화 장판"], "counterplay": "장판을 전장 외곽으로 유도하고 투사체나 소환수로 안전하게 압박한다.", "tier": 3}
+		&"red_supervisor":
+			return {"description": "붉은 방패와 생산 지휘권을 가진 네임드 감독관. 전진 압박과 증원 호출을 번갈아 수행한다.", "patterns": ["방패 전진 충격", "증원 2기 소환"], "counterplay": "증원을 광역기로 정리한 뒤 방패 충격의 회복 구간에 후방을 집중 공격한다.", "tier": 5}
+		&"lady_of_pressure":
+			return {"description": "고압 추진기를 두른 네임드 돌격수. 연속 돌진과 부채꼴 탄막으로 회피 경로를 봉쇄한다.", "patterns": ["연속 고압 돌진", "부채꼴 리벳 탄막"], "counterplay": "전장 중앙을 유지하고 첫 돌진을 대시로 흘린 뒤 탄막 사이의 넓은 틈으로 빠진다.", "tier": 5}
+		&"void_welder":
+			return {"description": "공간을 용접해 위험 지대를 만드는 네임드 주술사. 위치를 바꾸며 지속 장판을 중첩한다.", "patterns": ["공허 위치 이동", "지속 용접 장판"], "counterplay": "장판을 한쪽에 모아 유도하고 순간이동 직후 자동 타겟 화력을 집중한다.", "tier": 5}
+		&"foundry_core":
+			return {"description": "제련소의 폭주한 중앙 동력핵. 대형 위험 장판과 전방위 탄막을 교차해 생존 빌드의 완성도를 검증한다.", "patterns": ["대형 추적 용해 장판", "14방향 전방위 탄막"], "counterplay": "장판을 외곽에 유도하며 코어와 일정 거리를 유지하고, 탄막 사이를 대시로 통과한다.", "tier": 10}
+	return {}
+
 
 static func maps() -> Array[MapDef]:
 	var foundry := MapDef.new()
 	foundry.id = &"foundry"
 	foundry.display_name = "카르보 제련소"
+	foundry.description = "마력 제련 설비가 폭주한 거대한 다각형 공장 전장. 플레이어를 따라 움직이는 카메라 안으로 기계 군세가 끊임없이 유입된다."
+	foundry.survival_rules = "적을 처치해 경험치를 모으고 레벨업할 때마다 전투를 멈춰 카드·유물 보상을 선택하고 콤보를 재편한다. 5레벨마다 네임드, 10레벨마다 제련소 코어가 등장하며 제한 시간 없이 생존 기록을 갱신한다."
+	foundry.environment_features.assign(["넓은 다각형 전장", "플레이어 추적 카메라", "스폰 1초 전 예고 마커", "시간·레벨 비례 적 로스터 확장"])
+	foundry.enemy_roster_summary.assign(["일반 적 8종", "네임드 3종", "보스 1종", "지원형·소환형 동시 출현 제한"])
 	foundry.arena_shape = MapDef.ArenaShape.POLYGON
 	foundry.max_depth = 5
 	foundry.max_total_nodes = 12
 	return [foundry]
-
 
 static func starting_deck(family_id: StringName, all_cards: Array[CardDef]) -> DeckState:
 	var deck := DeckState.new()
@@ -167,11 +221,11 @@ static func starting_deck(family_id: StringName, all_cards: Array[CardDef]) -> D
 	return deck
 
 
-static func default_cycle(deck: DeckState) -> CycleState:
+static func default_cycle(deck: DeckState, requested_slot_count := 3) -> CycleState:
 	var cycle := CycleState.new()
 	if deck.cards.is_empty():
 		return cycle
-	var lane_count := mini(3, deck.cards.size())
+	var lane_count := mini(maxi(1, requested_slot_count), deck.cards.size())
 	var lane_times: Array[float] = []
 	for lane_index in range(lane_count):
 		cycle.combos.append(ComboState.create(StringName("combo_%d" % (lane_index + 1))))

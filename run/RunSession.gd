@@ -1,11 +1,11 @@
 extends RefCounted
 class_name RunSession
 
-enum Mode { STANDARD, ENDLESS, SURVIVOR_AB }
+enum Mode { STANDARD, ENDLESS, SURVIVOR }
 
-var version := 2
+var version := 3
 var seed := 1
-var mode: Mode = Mode.STANDARD
+var mode: Mode = Mode.SURVIVOR
 var map_id: StringName = &""
 var character_id: StringName = &""
 var starting_family_id: StringName = &""
@@ -13,6 +13,7 @@ var current_node_id: StringName = &""
 var visited_node_ids: Array[StringName] = []
 var currency := 0
 var relic_ids: Array[StringName] = []
+var combo_slot_modifier := 0
 var consumables: Dictionary = {}
 var deck_data: Dictionary = {}
 var cycle_data: Dictionary = {}
@@ -22,7 +23,7 @@ var success := false
 var ended := false
 
 
-static func create(new_seed: int, selected_map: StringName, character: StringName, family: StringName, selected_mode: Mode = Mode.STANDARD) -> RunSession:
+static func create(new_seed: int, selected_map: StringName, character: StringName, family: StringName, selected_mode: Mode = Mode.SURVIVOR) -> RunSession:
 	var session := RunSession.new()
 	session.seed = new_seed if new_seed != 0 else 1
 	session.map_id = selected_map
@@ -61,6 +62,7 @@ func to_dict() -> Dictionary:
 		"visited_node_ids": Array(visited_node_ids),
 		"currency": currency,
 		"relic_ids": Array(relic_ids),
+		"combo_slot_modifier": combo_slot_modifier,
 		"consumables": consumables.duplicate(true),
 		"deck_data": deck_data.duplicate(true),
 		"cycle_data": cycle_data.duplicate(true),
@@ -75,7 +77,7 @@ static func from_dict(data: Dictionary) -> RunSession:
 	var session := RunSession.new()
 	session.version = int(data.get("version", 1))
 	session.seed = int(data.get("seed", 1))
-	session.mode = int(data.get("mode", Mode.STANDARD)) as Mode
+	session.mode = int(data.get("mode", Mode.SURVIVOR)) as Mode
 	session.map_id = StringName(data.get("map_id", ""))
 	session.character_id = StringName(data.get("character_id", ""))
 	session.starting_family_id = StringName(data.get("starting_family_id", ""))
@@ -83,6 +85,7 @@ static func from_dict(data: Dictionary) -> RunSession:
 	for id in data.get("visited_node_ids", []):
 		session.visited_node_ids.append(StringName(id))
 	session.currency = int(data.get("currency", 0))
+	session.combo_slot_modifier = int(data.get("combo_slot_modifier", 0))
 	for id in data.get("relic_ids", []):
 		session.relic_ids.append(StringName(id))
 	session.consumables = data.get("consumables", {}).duplicate(true)

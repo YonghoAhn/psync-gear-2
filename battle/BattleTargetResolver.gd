@@ -19,7 +19,14 @@ func resolve(card_def: CardDef, origin: Vector2) -> Dictionary:
 	if card_def.target_priority == CardDef.TargetPriority.SELF:
 		return _result(selected, origin, origin, arena.player.facing_direction)
 	if candidates.is_empty():
-		return _result(selected, origin, origin, arena.player.facing_direction)
+		var fallback_aim := arena.player.facing_direction.normalized()
+		if fallback_aim == Vector2.ZERO:
+			fallback_aim = Vector2.RIGHT
+		var effect_point := origin
+		if card_def.attack_pattern not in [CardDef.AttackPattern.MELEE_ARC, CardDef.AttackPattern.THRUST, CardDef.AttackPattern.DEFENSE, CardDef.AttackPattern.MOVEMENT]:
+			var fallback_distance := clampf(card_def.max_range * 0.55, 60.0, 360.0)
+			effect_point = origin + fallback_aim * fallback_distance
+		return _result(selected, effect_point, effect_point, fallback_aim)
 	match card_def.target_priority:
 		CardDef.TargetPriority.LOWEST_HP:
 			candidates.sort_custom(func(a: BattleEnemy, b: BattleEnemy):

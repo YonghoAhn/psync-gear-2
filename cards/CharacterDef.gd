@@ -25,6 +25,7 @@ enum Style { GENERAL, GIMMICK }
 
 @export_group("Run Rules")
 @export var allowed_starting_families: Array[StringName] = []
+@export_range(1, 8, 1) var base_combo_slots := 3
 @export var traits: Array[Resource] = []
 @export var unlock_condition: Resource
 
@@ -37,6 +38,10 @@ enum Style { GENERAL, GIMMICK }
 
 func allows_family(family_id: StringName) -> bool:
 	return allowed_starting_families.has(family_id)
+
+
+func combo_slot_count(modifier := 0) -> int:
+	return maxi(1, base_combo_slots + modifier)
 
 
 func to_stats_dict() -> Dictionary:

@@ -1,7 +1,7 @@
 extends RefCounted
 class_name SaveCodec
 
-const CURRENT_VERSION := 2
+const CURRENT_VERSION := 3
 
 static func encode_run(session: RunSession) -> String:
 	return JSON.stringify(session.to_dict())
@@ -28,15 +28,17 @@ static func decode_unlocks(text: String) -> UnlockProfile:
 static func _migrate_run(data: Dictionary) -> Dictionary:
 	if data.has("version"):
 		var migrated := data.duplicate(true)
-		# Version 2 removes active combo cost rules. ComboState ignores legacy
-		# cost_limit fields while preserving card IDs and lane order.
+		# Version 2 removes active combo cost rules. Version 3 stores a runtime
+		# combo-slot modifier so future relics can adjust character base slots.
+		if not migrated.has("combo_slot_modifier"):
+			migrated["combo_slot_modifier"] = 0
 		migrated["version"] = CURRENT_VERSION
 		return migrated
 	## Legacy GameApp dictionary migration.
 	return {
 		"version": CURRENT_VERSION,
 		"seed": int(data.get("seed", 1)),
-		"mode": RunSession.Mode.STANDARD,
+		"mode": RunSession.Mode.SURVIVOR,
 		"map_id": String(data.get("map_id", "foundry")),
 		"character_id": String(data.get("character_id", "")),
 		"starting_family_id": String(data.get("archetype_id", "")),
@@ -44,6 +46,7 @@ static func _migrate_run(data: Dictionary) -> Dictionary:
 		"visited_node_ids": [],
 		"currency": int(data.get("currency", 0)),
 		"relic_ids": data.get("relic_ids", []),
+		"combo_slot_modifier": 0,
 		"consumables": {},
 		"deck_data": {"cards": data.get("deck_state", [])},
 		"cycle_data": {},

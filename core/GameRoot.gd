@@ -13,16 +13,26 @@ var map_controller := RunMapController.new()
 var run_rng: RunRng
 var selected_map: MapDef
 var selected_character: CharacterDef
+var selected_family: StringName = &""
 var root_control: Control
 var pending_node: MapNode
 var combo_editor_message := ""
 var survivor_arena: BattleArena
 var survivor_level_overlay: CanvasLayer
 var survivor_reward_claimed := false
+enum SurvivorLevelStage { REWARD, REFINE }
+var survivor_level_stage := SurvivorLevelStage.REWARD
+var survivor_reward_view := "acquire"
+var survivor_level_action := ""
+var survivor_card_rerolls_left := 1
+var survivor_card_offers: Array[CardDef] = []
 const MIN_COMBO_SLOTS := 1
 var card_codex_family_filter: StringName = &"all"
 var card_codex_rarity_filter := -1
 var card_codex_selected_id: StringName = &""
+var enemy_codex_rank_filter := -1
+var enemy_codex_selected_id: StringName = &""
+var map_codex_selected_id: StringName = &""
 
 
 func _ready() -> void:
@@ -39,7 +49,7 @@ func _bootstrap_unlocks() -> void:
 		unlocks.unlock("maps", map.id)
 	for character in all_characters:
 		unlocks.unlock("characters", character.id)
-	for family in [&"sword", &"fire", &"water"]:
+	for family in [&"sword", &"spear", &"blunt", &"fire", &"water", &"poison"]:
 		unlocks.unlock("families", family)
 
 
@@ -97,22 +107,17 @@ func _button(text_value: String, callback: Callable, min_width := 430.0) -> Butt
 
 
 func _show_main_menu() -> void:
-	set_meta(&"starting_survivor_ab", false)
-	var stack := _screen_stack("CARBO", "A/B TEST · 노드 런과 무한 생존 런을 동일 카드 시스템으로 비교")
+	var stack := _screen_stack("CARBO", "무한 생존 · 경험치 레벨업과 덱 정제로 한계를 돌파하세요")
 	_add_menu_key_art()
 	var spacer := Control.new()
-	spacer.custom_minimum_size.y = 70
+	spacer.custom_minimum_size.y = 34
 	stack.add_child(spacer)
-	stack.add_child(_button("A · 노드 런", _begin_new_run))
-	stack.add_child(_button("B · 무한 생존 실험", _begin_survivor_test))
-	var endless := _button("A 확장 · 노드 무한 모드", _begin_endless_run)
-	endless.disabled = not unlocks.is_unlocked("endless_maps", &"foundry")
-	endless.tooltip_text = "맵 보스를 한 번 처치하면 해금됩니다"
-	stack.add_child(endless)
+	stack.add_child(_button("게임 시작 · 무한 생존", _begin_survivor))
 	stack.add_child(_button("카드 도감 · CARD ARCHIVE", _open_card_codex))
+	stack.add_child(_button("적 도감 · ENEMY ARCHIVE", _open_enemy_codex))
+	stack.add_child(_button("맵 도감 · MAP ARCHIVE", _open_map_codex))
 	stack.add_child(_button("설정", _show_settings))
 	stack.add_child(_button("게임 종료", func(): get_tree().quit()))
-
 
 func _add_menu_key_art() -> void:
 	var frame := Panel.new()
@@ -472,23 +477,436 @@ func _codex_effect_name(type: EffectSpec.Type) -> String:
 	][type]
 
 
-func _begin_new_run() -> void:
-	set_meta(&"starting_survivor_ab", false)
-	flow.transition(RunFlowController.State.MAP_SELECT)
-	_show_map_select(false)
+func _open_enemy_codex() -> void:
+	enemy_codex_rank_filter = -1
+	var enemies := ContentFactory.all_enemies()
+	enemy_codex_selected_id = enemies[0].id if not enemies.is_empty() else &""
+	_show_enemy_codex()
 
 
-func _begin_endless_run() -> void:
-	set_meta(&"starting_survivor_ab", false)
-	flow.transition(RunFlowController.State.MAP_SELECT)
-	_show_map_select(true)
+func _show_enemy_codex() -> void:
+	_clear_screen()
+	var all_enemies := ContentFactory.all_enemies()
+	var filtered: Array[EnemyDef] = []
+	for enemy in all_enemies:
+		if enemy_codex_rank_filter >= 0 and enemy.rank != enemy_codex_rank_filter:
+			continue
+		filtered.append(enemy)
+	var selected: EnemyDef = null
+	for enemy in filtered:
+		if enemy.id == enemy_codex_selected_id:
+			selected = enemy
+			break
+	if selected == null and not filtered.is_empty():
+		selected = filtered[0]
+		enemy_codex_selected_id = selected.id
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 28)
+	margin.add_theme_constant_override("margin_right", 28)
+	margin.add_theme_constant_override("margin_top", 22)
+	margin.add_theme_constant_override("margin_bottom", 22)
+	root_control.add_child(margin)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 9)
+	margin.add_child(stack)
+
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 14)
+	var title := Label.new()
+	title.text = "ENEMY ARCHIVE // 적 도감"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 34)
+	title.add_theme_color_override("font_color", ArtDirection.PAPER)
+	title.add_theme_color_override("font_shadow_color", ArtDirection.MAGENTA)
+	title.add_theme_constant_override("shadow_offset_x", 4)
+	title.add_theme_constant_override("shadow_offset_y", 2)
+	header.add_child(title)
+	var count_label := Label.new()
+	count_label.name = "EnemyCodexCount"
+	count_label.text = "%d / %d ENEMIES" % [filtered.size(), all_enemies.size()]
+	count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	count_label.add_theme_font_size_override("font_size", 18)
+	count_label.add_theme_color_override("font_color", ArtDirection.YELLOW)
+	header.add_child(count_label)
+	header.add_child(_button("메인 메뉴", _show_main_menu, 150))
+	stack.add_child(header)
+
+	var toolbar := HBoxContainer.new()
+	toolbar.add_theme_constant_override("separation", 10)
+	var rank_label := Label.new()
+	rank_label.text = "위험 등급"
+	rank_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	rank_label.add_theme_color_override("font_color", ArtDirection.CYAN)
+	toolbar.add_child(rank_label)
+	var rank_select := OptionButton.new()
+	rank_select.name = "EnemyCodexRankFilter"
+	rank_select.custom_minimum_size = Vector2(210, 42)
+	rank_select.add_item("전체 적")
+	for rank in range(EnemyDef.Rank.size()):
+		rank_select.add_item(_enemy_rank_name(rank as EnemyDef.Rank))
+	rank_select.select(enemy_codex_rank_filter + 1)
+	rank_select.item_selected.connect(_set_enemy_codex_rank_filter)
+	toolbar.add_child(rank_select)
+	var hint := Label.new()
+	hint.text = "등장 단계와 예고 패턴, 우선 처리 대상을 확인할 수 있습니다"
+	hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+	hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hint.add_theme_font_size_override("font_size", 13)
+	hint.add_theme_color_override("font_color", ArtDirection.PAPER_DIM)
+	toolbar.add_child(hint)
+	stack.add_child(toolbar)
+	stack.add_child(HSeparator.new())
+
+	var body := HBoxContainer.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 14)
+	stack.add_child(body)
+	var enemy_scroll := ScrollContainer.new()
+	enemy_scroll.name = "EnemyCodexScroll"
+	enemy_scroll.custom_minimum_size.x = 790
+	enemy_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	enemy_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	enemy_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	enemy_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	body.add_child(enemy_scroll)
+	var grid := GridContainer.new()
+	grid.name = "EnemyCodexGrid"
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	enemy_scroll.add_child(grid)
+
+	for enemy in filtered:
+		var entry_id := enemy.id
+		var tile := Button.new()
+		tile.name = "EnemyCodexEntry_%s" % enemy.id
+		tile.set_meta(&"enemy_id", enemy.id)
+		tile.text = "%s
+%s · %s · %s
+HP %.0f · 공격 %.1f · 속도 %.0f
+%s" % [enemy.display_name, _enemy_rank_name(enemy.rank), _enemy_role_name(enemy.role), _enemy_spawn_text(enemy), enemy.base_max_hp, enemy.base_attack_power, enemy.base_move_speed, " / ".join(enemy.pattern_names)]
+		tile.tooltip_text = enemy.description
+		tile.custom_minimum_size = Vector2(375, 142)
+		tile.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		tile.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tile.add_theme_font_size_override("font_size", 15)
+		tile.add_theme_color_override("font_color", ArtDirection.PAPER)
+		tile.add_theme_color_override("font_hover_color", ArtDirection.YELLOW)
+		var border_color := ArtDirection.YELLOW if enemy.id == enemy_codex_selected_id else _enemy_rank_color(enemy.rank)
+		tile.add_theme_stylebox_override("normal", ArtDirection.panel_style(Color(0.075, 0.055, 0.095, 0.97), border_color, 2 if enemy.id == enemy_codex_selected_id else 1, 1))
+		tile.add_theme_stylebox_override("hover", ArtDirection.panel_style(Color(0.12, 0.07, 0.14, 0.99), ArtDirection.YELLOW, 3, 1))
+		tile.pressed.connect(func(): _select_enemy_codex_entry(entry_id))
+		grid.add_child(tile)
+
+	var detail_panel := PanelContainer.new()
+	detail_panel.name = "EnemyCodexDetail"
+	detail_panel.custom_minimum_size.x = 370
+	detail_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail_panel.add_theme_stylebox_override("panel", ArtDirection.panel_style(ArtDirection.INK, ArtDirection.MAGENTA, 3, 1))
+	body.add_child(detail_panel)
+	var detail_margin := MarginContainer.new()
+	detail_margin.add_theme_constant_override("margin_left", 16)
+	detail_margin.add_theme_constant_override("margin_right", 16)
+	detail_margin.add_theme_constant_override("margin_top", 14)
+	detail_margin.add_theme_constant_override("margin_bottom", 14)
+	detail_panel.add_child(detail_margin)
+	var detail_scroll := ScrollContainer.new()
+	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	detail_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	detail_margin.add_child(detail_scroll)
+	detail_scroll.add_child(_build_enemy_codex_detail(selected))
 
 
-func _begin_survivor_test() -> void:
-	set_meta(&"starting_survivor_ab", true)
-	set_meta(&"starting_endless", false)
-	flow.transition(RunFlowController.State.MAP_SELECT)
-	_show_map_select(false)
+func _set_enemy_codex_rank_filter(index: int) -> void:
+	enemy_codex_rank_filter = clampi(index - 1, -1, EnemyDef.Rank.size() - 1)
+	_show_enemy_codex()
+
+
+func _select_enemy_codex_entry(enemy_id: StringName) -> void:
+	enemy_codex_selected_id = enemy_id
+	_show_enemy_codex()
+
+
+func _build_enemy_codex_detail(enemy: EnemyDef) -> Control:
+	var detail := VBoxContainer.new()
+	detail.custom_minimum_size.x = 332
+	detail.add_theme_constant_override("separation", 9)
+	if enemy == null:
+		var empty := Label.new()
+		empty.text = "표시할 적이 없습니다."
+		detail.add_child(empty)
+		return detail
+	var title := Label.new()
+	title.text = enemy.display_name
+	title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	title.add_theme_font_size_override("font_size", 28)
+	title.add_theme_color_override("font_color", _enemy_rank_color(enemy.rank))
+	detail.add_child(title)
+	var identity := Label.new()
+	identity.text = "%s · %s · %s" % [_enemy_rank_name(enemy.rank), _enemy_role_name(enemy.role), _enemy_spawn_text(enemy)]
+	identity.add_theme_font_size_override("font_size", 16)
+	identity.add_theme_color_override("font_color", ArtDirection.YELLOW)
+	detail.add_child(identity)
+	detail.add_child(HSeparator.new())
+	var description := Label.new()
+	description.text = enemy.description
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_font_size_override("font_size", 17)
+	description.add_theme_color_override("font_color", ArtDirection.PAPER)
+	detail.add_child(description)
+	detail.add_child(HSeparator.new())
+	var stats_title := Label.new()
+	stats_title.text = "기본 전투 프로필"
+	stats_title.add_theme_font_size_override("font_size", 18)
+	stats_title.add_theme_color_override("font_color", ArtDirection.MAGENTA)
+	detail.add_child(stats_title)
+	var stats := Label.new()
+	stats.text = "체력  %.0f
+공격력  %.1f
+이동 속도  %.0f
+방어력  %.0f
+접촉 피해  %.1f" % [enemy.base_max_hp, enemy.base_attack_power, enemy.base_move_speed, enemy.base_defense, enemy.contact_damage]
+	stats.add_theme_font_size_override("font_size", 15)
+	stats.add_theme_color_override("font_color", ArtDirection.PAPER_DIM)
+	detail.add_child(stats)
+	detail.add_child(HSeparator.new())
+	var pattern_title := Label.new()
+	pattern_title.text = "공격 패턴"
+	pattern_title.add_theme_font_size_override("font_size", 18)
+	pattern_title.add_theme_color_override("font_color", ArtDirection.CYAN)
+	detail.add_child(pattern_title)
+	for pattern in enemy.pattern_names:
+		var row := Label.new()
+		row.text = "◆ %s" % pattern
+		row.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		row.add_theme_color_override("font_color", ArtDirection.PAPER)
+		detail.add_child(row)
+	detail.add_child(HSeparator.new())
+	var counter_title := Label.new()
+	counter_title.text = "대응법"
+	counter_title.add_theme_font_size_override("font_size", 18)
+	counter_title.add_theme_color_override("font_color", ArtDirection.YELLOW)
+	detail.add_child(counter_title)
+	var counter := Label.new()
+	counter.text = enemy.counterplay
+	counter.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	counter.add_theme_font_size_override("font_size", 15)
+	counter.add_theme_color_override("font_color", ArtDirection.PAPER)
+	detail.add_child(counter)
+	return detail
+
+
+func _enemy_rank_name(rank: EnemyDef.Rank) -> String:
+	return ["일반", "네임드", "보스"][rank]
+
+
+func _enemy_role_name(role: EnemyDef.Role) -> String:
+	return ["근접 추적", "원거리 사격", "지원", "소환", "방해", "돌격", "자폭", "방패"][role]
+
+
+func _enemy_rank_color(rank: EnemyDef.Rank) -> Color:
+	return [ArtDirection.CYAN, ArtDirection.MAGENTA, ArtDirection.YELLOW][rank]
+
+
+func _enemy_spawn_text(enemy: EnemyDef) -> String:
+	if enemy.rank == EnemyDef.Rank.BOSS:
+		return "%d레벨 주기" % enemy.spawn_tier
+	if enemy.rank == EnemyDef.Rank.NAMED:
+		return "%d레벨 주기" % enemy.spawn_tier
+	return ["초반 출현", "중반 해금", "후반 해금"][clampi(enemy.spawn_tier - 1, 0, 2)]
+
+
+func _open_map_codex() -> void:
+	map_codex_selected_id = all_maps[0].id if not all_maps.is_empty() else &""
+	_show_map_codex()
+
+
+func _show_map_codex() -> void:
+	_clear_screen()
+	var selected: MapDef = null
+	for map in all_maps:
+		if map.id == map_codex_selected_id:
+			selected = map
+			break
+	if selected == null and not all_maps.is_empty():
+		selected = all_maps[0]
+		map_codex_selected_id = selected.id
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 28)
+	margin.add_theme_constant_override("margin_right", 28)
+	margin.add_theme_constant_override("margin_top", 22)
+	margin.add_theme_constant_override("margin_bottom", 22)
+	root_control.add_child(margin)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 10)
+	margin.add_child(stack)
+	var header := HBoxContainer.new()
+	header.add_theme_constant_override("separation", 14)
+	var title := Label.new()
+	title.text = "MAP ARCHIVE // 맵 도감"
+	title.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title.add_theme_font_size_override("font_size", 34)
+	title.add_theme_color_override("font_color", ArtDirection.PAPER)
+	title.add_theme_color_override("font_shadow_color", ArtDirection.CYAN)
+	title.add_theme_constant_override("shadow_offset_x", 4)
+	title.add_theme_constant_override("shadow_offset_y", 2)
+	header.add_child(title)
+	var count_label := Label.new()
+	count_label.name = "MapCodexCount"
+	count_label.text = "%d MAPS" % all_maps.size()
+	count_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	count_label.add_theme_font_size_override("font_size", 18)
+	count_label.add_theme_color_override("font_color", ArtDirection.YELLOW)
+	header.add_child(count_label)
+	header.add_child(_button("메인 메뉴", _show_main_menu, 150))
+	stack.add_child(header)
+	var hint := Label.new()
+	hint.text = "전장의 생존 규칙과 출현 로스터를 미리 확인할 수 있습니다"
+	hint.add_theme_color_override("font_color", ArtDirection.CYAN)
+	stack.add_child(hint)
+	stack.add_child(HSeparator.new())
+	var body := HBoxContainer.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 14)
+	stack.add_child(body)
+	var map_scroll := ScrollContainer.new()
+	map_scroll.name = "MapCodexScroll"
+	map_scroll.custom_minimum_size.x = 410
+	map_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	map_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	map_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	body.add_child(map_scroll)
+	var list := VBoxContainer.new()
+	list.name = "MapCodexList"
+	list.custom_minimum_size.x = 390
+	list.add_theme_constant_override("separation", 10)
+	map_scroll.add_child(list)
+	for map in all_maps:
+		var entry_id := map.id
+		var tile := Button.new()
+		tile.name = "MapCodexEntry_%s" % map.id
+		tile.text = "%s
+%s
+%s" % [map.display_name, "다각형 생존 전장" if map.arena_shape == MapDef.ArenaShape.POLYGON else "원형 생존 전장", map.description.left(62)]
+		tile.tooltip_text = map.description
+		tile.custom_minimum_size = Vector2(390, 150)
+		tile.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		tile.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tile.add_theme_font_size_override("font_size", 16)
+		tile.add_theme_color_override("font_color", ArtDirection.PAPER)
+		var border_color := ArtDirection.YELLOW if map.id == map_codex_selected_id else ArtDirection.CYAN
+		tile.add_theme_stylebox_override("normal", ArtDirection.panel_style(Color(0.075, 0.055, 0.095, 0.97), border_color, 2 if map.id == map_codex_selected_id else 1, 1))
+		tile.add_theme_stylebox_override("hover", ArtDirection.panel_style(Color(0.12, 0.07, 0.14, 0.99), ArtDirection.YELLOW, 3, 1))
+		tile.pressed.connect(func(): _select_map_codex_entry(entry_id))
+		list.add_child(tile)
+	var detail_panel := PanelContainer.new()
+	detail_panel.name = "MapCodexDetail"
+	detail_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	detail_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail_panel.add_theme_stylebox_override("panel", ArtDirection.panel_style(ArtDirection.INK, ArtDirection.CYAN, 3, 1))
+	body.add_child(detail_panel)
+	var detail_margin := MarginContainer.new()
+	detail_margin.add_theme_constant_override("margin_left", 22)
+	detail_margin.add_theme_constant_override("margin_right", 22)
+	detail_margin.add_theme_constant_override("margin_top", 18)
+	detail_margin.add_theme_constant_override("margin_bottom", 18)
+	detail_panel.add_child(detail_margin)
+	var detail_scroll := ScrollContainer.new()
+	detail_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	detail_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	detail_margin.add_child(detail_scroll)
+	detail_scroll.add_child(_build_map_codex_detail(selected))
+
+
+func _select_map_codex_entry(map_id: StringName) -> void:
+	map_codex_selected_id = map_id
+	_show_map_codex()
+
+
+func _build_map_codex_detail(map: MapDef) -> Control:
+	var detail := VBoxContainer.new()
+	detail.custom_minimum_size.x = 690
+	detail.add_theme_constant_override("separation", 10)
+	if map == null:
+		var empty := Label.new()
+		empty.text = "표시할 맵이 없습니다."
+		detail.add_child(empty)
+		return detail
+	var title := Label.new()
+	title.text = map.display_name
+	title.add_theme_font_size_override("font_size", 30)
+	title.add_theme_color_override("font_color", ArtDirection.CYAN)
+	detail.add_child(title)
+	var identity := Label.new()
+	identity.text = "%s · 무한 생존 전용" % ("다각형 전장" if map.arena_shape == MapDef.ArenaShape.POLYGON else "원형 전장")
+	identity.add_theme_font_size_override("font_size", 16)
+	identity.add_theme_color_override("font_color", ArtDirection.YELLOW)
+	detail.add_child(identity)
+	detail.add_child(HSeparator.new())
+	var description := Label.new()
+	description.text = map.description
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	description.add_theme_font_size_override("font_size", 18)
+	description.add_theme_color_override("font_color", ArtDirection.PAPER)
+	detail.add_child(description)
+	var rules_title := Label.new()
+	rules_title.text = "생존 규칙"
+	rules_title.add_theme_font_size_override("font_size", 19)
+	rules_title.add_theme_color_override("font_color", ArtDirection.MAGENTA)
+	detail.add_child(rules_title)
+	var rules := Label.new()
+	rules.text = map.survival_rules
+	rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rules.add_theme_font_size_override("font_size", 16)
+	rules.add_theme_color_override("font_color", ArtDirection.PAPER)
+	detail.add_child(rules)
+	detail.add_child(HSeparator.new())
+	var feature_title := Label.new()
+	feature_title.text = "전장 특성"
+	feature_title.add_theme_font_size_override("font_size", 19)
+	feature_title.add_theme_color_override("font_color", ArtDirection.CYAN)
+	detail.add_child(feature_title)
+	for feature in map.environment_features:
+		var row := Label.new()
+		row.text = "◆ %s" % feature
+		row.add_theme_color_override("font_color", ArtDirection.PAPER)
+		detail.add_child(row)
+	var roster_title := Label.new()
+	roster_title.text = "출현 로스터"
+	roster_title.add_theme_font_size_override("font_size", 19)
+	roster_title.add_theme_color_override("font_color", ArtDirection.YELLOW)
+	detail.add_child(roster_title)
+	for item in map.enemy_roster_summary:
+		var row := Label.new()
+		row.text = "◆ %s" % item
+		row.add_theme_color_override("font_color", ArtDirection.PAPER)
+		detail.add_child(row)
+	var roster_names: Array[String] = []
+	for enemy in ContentFactory.all_enemies():
+		roster_names.append("%s [%s]" % [enemy.display_name, _enemy_rank_name(enemy.rank)])
+	var names := Label.new()
+	names.text = "
+".join(roster_names)
+	names.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	names.add_theme_font_size_override("font_size", 14)
+	names.add_theme_color_override("font_color", ArtDirection.PAPER_DIM)
+	detail.add_child(names)
+	return detail
+
+func _begin_survivor() -> void:
+	selected_character = null
+	selected_family = &""
+	selected_map = null
+	for character in all_characters:
+		if unlocks.is_unlocked("characters", character.id):
+			selected_character = character
+			break
+	flow.transition(RunFlowController.State.CHARACTER_SELECT)
+	_show_character_select()
 
 
 func _show_settings() -> void:
@@ -509,70 +927,536 @@ func _show_settings() -> void:
 	stack.add_child(_button("돌아가기", _show_main_menu))
 
 
-func _show_map_select(endless: bool) -> void:
-	var survivor_ab := bool(get_meta(&"starting_survivor_ab", false))
-	var subtitle := "B안 · 노드 없이 경험치 레벨업으로 계속 진행합니다" if survivor_ab else "클리어한 맵은 노드 무한 모드로 다시 도전할 수 있습니다"
-	var stack := _screen_stack("맵 선택", subtitle)
-	for map in all_maps:
-		var unlocked := unlocks.is_unlocked("maps", map.id)
-		var button := _button("%s · %s" % [map.display_name, "다각형 전장" if map.arena_shape == MapDef.ArenaShape.POLYGON else "원형 전장"], func(): _select_map(map, endless))
-		button.disabled = not unlocked or (endless and not unlocks.is_unlocked("endless_maps", map.id))
-		stack.add_child(button)
-	stack.add_child(_button("뒤로", _show_main_menu))
-
-
-func _select_map(map: MapDef, endless: bool) -> void:
-	selected_map = map
-	set_meta(&"starting_endless", endless)
-	flow.transition(RunFlowController.State.CHARACTER_SELECT)
-	_show_character_select()
+func _selection_stack(title_text: String, subtitle_text: String, step_text: String) -> VBoxContainer:
+	_clear_screen()
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 30)
+	margin.add_theme_constant_override("margin_right", 30)
+	margin.add_theme_constant_override("margin_top", 22)
+	margin.add_theme_constant_override("margin_bottom", 22)
+	root_control.add_child(margin)
+	var stack := VBoxContainer.new()
+	stack.add_theme_constant_override("separation", 10)
+	margin.add_child(stack)
+	var header := HBoxContainer.new()
+	header.custom_minimum_size.y = 72
+	header.add_theme_constant_override("separation", 14)
+	var title_box := VBoxContainer.new()
+	title_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var title := Label.new()
+	title.text = title_text
+	title.add_theme_font_size_override("font_size", 32)
+	title.add_theme_color_override("font_color", ArtDirection.PAPER)
+	title.add_theme_color_override("font_shadow_color", ArtDirection.MAGENTA)
+	title.add_theme_constant_override("shadow_offset_x", 4)
+	title.add_theme_constant_override("shadow_offset_y", 2)
+	title_box.add_child(title)
+	var subtitle := Label.new()
+	subtitle.text = subtitle_text
+	subtitle.add_theme_font_size_override("font_size", 14)
+	subtitle.add_theme_color_override("font_color", ArtDirection.CYAN)
+	title_box.add_child(subtitle)
+	header.add_child(title_box)
+	var step := Label.new()
+	step.text = step_text
+	step.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	step.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	step.custom_minimum_size = Vector2(150, 48)
+	step.add_theme_font_size_override("font_size", 17)
+	step.add_theme_color_override("font_color", ArtDirection.YELLOW)
+	step.add_theme_stylebox_override("normal", ArtDirection.panel_style(ArtDirection.INK, ArtDirection.YELLOW, 2, 1))
+	header.add_child(step)
+	stack.add_child(header)
+	stack.add_child(HSeparator.new())
+	return stack
 
 
 func _show_character_select() -> void:
-	var stack := _screen_stack("캐릭터 선택", "캐릭터마다 스탯, 시작 카드군과 고유 규칙이 다릅니다")
+	var stack := _selection_stack("CHARACTER SELECT // 캐릭터 선택", "먼저 생존 방식과 시작 카드군 범위를 결정할 캐릭터를 선택합니다", "STEP 01 / 03")
+	var body := HBoxContainer.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 14)
+	stack.add_child(body)
+
+	var roster_panel := PanelContainer.new()
+	roster_panel.name = "CharacterRoster"
+	roster_panel.custom_minimum_size.x = 735
+	roster_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	roster_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	roster_panel.add_theme_stylebox_override("panel", ArtDirection.panel_style(Color(0.055, 0.055, 0.075, 0.96), ArtDirection.CYAN, 2, 1))
+	body.add_child(roster_panel)
+	var roster_margin := MarginContainer.new()
+	roster_margin.add_theme_constant_override("margin_left", 14)
+	roster_margin.add_theme_constant_override("margin_right", 14)
+	roster_margin.add_theme_constant_override("margin_top", 14)
+	roster_margin.add_theme_constant_override("margin_bottom", 14)
+	roster_panel.add_child(roster_margin)
+	var roster_stack := VBoxContainer.new()
+	roster_stack.add_theme_constant_override("separation", 10)
+	roster_margin.add_child(roster_stack)
+	var roster_title := Label.new()
+	roster_title.text = "CHARACTER ROSTER // 캐릭터 목록"
+	roster_title.add_theme_font_size_override("font_size", 18)
+	roster_title.add_theme_color_override("font_color", ArtDirection.CYAN)
+	roster_stack.add_child(roster_title)
+	var roster_scroll := ScrollContainer.new()
+	roster_scroll.name = "CharacterSelectScroll"
+	roster_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	roster_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	roster_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	roster_stack.add_child(roster_scroll)
+	var grid := GridContainer.new()
+	grid.name = "CharacterSelectGrid"
+	grid.columns = 2
+	grid.add_theme_constant_override("h_separation", 10)
+	grid.add_theme_constant_override("v_separation", 10)
+	roster_scroll.add_child(grid)
 	for character in all_characters:
+		var entry := character
+		var unlocked := unlocks.is_unlocked("characters", character.id)
 		var style := "일반형" if character.style == CharacterDef.Style.GENERAL else "기믹형"
-		var button := _button("%s  [%s]  HP %.0f · 마력 %.0f\n%s" % [character.display_name, style, character.base_max_hp, character.base_magic_power, character.description], func(): _select_character(character), 760)
-		button.disabled = not unlocks.is_unlocked("characters", character.id)
-		stack.add_child(button)
-	stack.add_child(_button("뒤로", func(): _show_map_select(bool(get_meta(&"starting_endless", false)))))
+		var families: Array[String] = []
+		for family in character.allowed_starting_families:
+			families.append(_family_name(family))
+		var tile := Button.new()
+		tile.name = "CharacterSelectEntry_%s" % character.id
+		tile.text = "%s
+%s · %s · 콤보 %d칸
+HP %.0f · 이동 %.0f · 방어 %.0f
+%s" % [character.display_name, style, " / ".join(families), character.base_combo_slots, character.base_max_hp, character.base_move_speed, character.base_defense, character.description]
+		tile.tooltip_text = character.description
+		tile.custom_minimum_size = Vector2(340, 166)
+		tile.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		tile.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tile.disabled = not unlocked
+		tile.add_theme_font_size_override("font_size", 15)
+		tile.add_theme_color_override("font_color", ArtDirection.PAPER)
+		var selected := selected_character != null and selected_character.id == character.id
+		var accent := ArtDirection.YELLOW if selected else ArtDirection.CYAN
+		tile.add_theme_stylebox_override("normal", ArtDirection.panel_style(Color(0.08, 0.06, 0.095, 0.98), accent, 3 if selected else 1, 1))
+		tile.add_theme_stylebox_override("hover", ArtDirection.panel_style(Color(0.14, 0.07, 0.15, 0.99), ArtDirection.YELLOW, 3, 1))
+		tile.pressed.connect(func(): _select_character(entry))
+		grid.add_child(tile)
+
+	var detail_panel := PanelContainer.new()
+	detail_panel.name = "CharacterSelectDetail"
+	detail_panel.custom_minimum_size.x = 455
+	detail_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	detail_panel.add_theme_stylebox_override("panel", ArtDirection.panel_style(ArtDirection.INK, ArtDirection.MAGENTA, 3, 1))
+	body.add_child(detail_panel)
+	var detail_margin := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		detail_margin.add_theme_constant_override("margin_%s" % side, 14)
+	detail_panel.add_child(detail_margin)
+	var detail := VBoxContainer.new()
+	detail.add_theme_constant_override("separation", 8)
+	detail_margin.add_child(detail)
+	if selected_character:
+		var portrait := TextureRect.new()
+		portrait.name = "CharacterPortrait"
+		portrait.texture = _character_portrait(selected_character.id)
+		portrait.custom_minimum_size = Vector2(420, 300)
+		portrait.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		portrait.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		portrait.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		detail.add_child(portrait)
+		var name_label := Label.new()
+		name_label.text = selected_character.display_name
+		name_label.add_theme_font_size_override("font_size", 26)
+		name_label.add_theme_color_override("font_color", ArtDirection.YELLOW)
+		detail.add_child(name_label)
+		var info := Label.new()
+		info.text = "%s · 기본 콤보 %d칸
+HP %.0f · 이동 %.0f · 마력 %.0f · 방어 %.0f
+선택 가능 카드군: %s" % ["일반형 캐릭터" if selected_character.style == CharacterDef.Style.GENERAL else "기믹형 캐릭터", selected_character.base_combo_slots, selected_character.base_max_hp, selected_character.base_move_speed, selected_character.base_magic_power, selected_character.base_defense, " / ".join(Array(selected_character.allowed_starting_families).map(func(id): return _family_name(id)))]
+		info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		info.add_theme_font_size_override("font_size", 15)
+		info.add_theme_color_override("font_color", ArtDirection.PAPER)
+		detail.add_child(info)
+		var confirm := _button("이 캐릭터 선택", _confirm_character_selection, 420)
+		confirm.name = "ConfirmCharacterButton"
+		confirm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		detail.add_child(confirm)
+	var back := _button("메인 메뉴로", _cancel_start_to_main, 180)
+	back.name = "CharacterBackButton"
+	stack.add_child(back)
+
+
+func _character_portrait(character_id: StringName) -> Texture2D:
+	var path: String = {
+		&"vanguard": "res://assets/concept/pilot_v2_2026-08-18/01_demon_vanguard_flat.png",
+		&"conduit": "res://assets/concept/pilot_v2_2026-08-18/02_chibi_elemental_dash.png",
+	}.get(character_id, "")
+	return load(path) as Texture2D if path != "" else null
 
 
 func _select_character(character: CharacterDef) -> void:
 	selected_character = character
+	selected_family = &""
+	_show_character_select()
+
+
+func _confirm_character_selection() -> void:
+	if selected_character == null:
+		return
+	for family in selected_character.allowed_starting_families:
+		if unlocks.is_unlocked("families", family):
+			selected_family = family
+			break
 	flow.transition(RunFlowController.State.STARTING_FAMILY_SELECT)
 	_show_family_select()
 
 
 func _show_family_select() -> void:
-	var stack := _screen_stack("시작 카드군 선택", "초반 덱의 방향을 정합니다. 덱의 모든 카드는 자동 사이클에 배치됩니다")
+	if selected_character == null:
+		_back_to_character_select()
+		return
+	var stack := _selection_stack("CARD FAMILY SELECT // 시작 카드군", "카드군 전체 구성은 열람만 가능하며 시작 덱 4장은 자동 편성됩니다", "STEP 02 / 03")
+	var family_title := Label.new()
+	family_title.text = "사용 가능한 카드군 · 좌우 스크롤"
+	family_title.add_theme_color_override("font_color", ArtDirection.CYAN)
+	stack.add_child(family_title)
+	var family_scroll := ScrollContainer.new()
+	family_scroll.name = "FamilySelectHorizontalScroll"
+	family_scroll.custom_minimum_size.y = 112
+	family_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	family_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	stack.add_child(family_scroll)
+	var family_row := HBoxContainer.new()
+	family_row.add_theme_constant_override("separation", 10)
+	family_scroll.add_child(family_row)
 	for family in selected_character.allowed_starting_families:
 		if not unlocks.is_unlocked("families", family):
 			continue
-		var names: Array[String] = []
+		var entry_id := family
+		var count := 0
 		for card in all_cards:
 			if card.family_id == family:
-				names.append(card.display_name)
-		stack.add_child(_button("%s · %s" % [_family_name(family), ", ".join(names)], func(): _start_run(family), 760))
-	stack.add_child(_button("뒤로", _show_character_select))
+				count += 1
+		var tile := Button.new()
+		tile.name = "FamilySelectEntry_%s" % family
+		tile.text = "%s
+%d CARDS · %s" % [_family_name(family), count, _family_playstyle(family)]
+		tile.custom_minimum_size = Vector2(300, 92)
+		tile.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		tile.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tile.add_theme_font_size_override("font_size", 16)
+		var selected := selected_family == family
+		var accent := ArtDirection.YELLOW if selected else _card_family_color(family)
+		tile.add_theme_stylebox_override("normal", ArtDirection.panel_style(Color(0.075, 0.055, 0.095, 0.98), accent, 3 if selected else 1, 1))
+		tile.add_theme_stylebox_override("hover", ArtDirection.panel_style(Color(0.14, 0.07, 0.15, 0.99), ArtDirection.YELLOW, 3, 1))
+		tile.pressed.connect(func(): _select_family(entry_id))
+		family_row.add_child(tile)
+
+	var body := HBoxContainer.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 14)
+	stack.add_child(body)
+	var summary_panel := PanelContainer.new()
+	summary_panel.name = "FamilySelectDetail"
+	summary_panel.custom_minimum_size.x = 300
+	summary_panel.add_theme_stylebox_override("panel", ArtDirection.panel_style(ArtDirection.INK, _card_family_color(selected_family), 3, 1))
+	body.add_child(summary_panel)
+	var summary_margin := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		summary_margin.add_theme_constant_override("margin_%s" % side, 16)
+	summary_panel.add_child(summary_margin)
+	var summary := VBoxContainer.new()
+	summary.add_theme_constant_override("separation", 10)
+	summary_margin.add_child(summary)
+	var emblem := Label.new()
+	emblem.text = _family_name(selected_family)
+	emblem.custom_minimum_size.y = 95
+	emblem.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	emblem.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	emblem.add_theme_font_size_override("font_size", 34)
+	emblem.add_theme_color_override("font_color", _card_family_color(selected_family))
+	emblem.add_theme_stylebox_override("normal", ArtDirection.panel_style(Color(0.11, 0.07, 0.12, 0.98), _card_family_color(selected_family), 2, 1))
+	summary.add_child(emblem)
+	var family_name := Label.new()
+	family_name.text = "%s 카드군" % _family_name(selected_family)
+	family_name.add_theme_font_size_override("font_size", 23)
+	family_name.add_theme_color_override("font_color", ArtDirection.YELLOW)
+	summary.add_child(family_name)
+	var family_desc := Label.new()
+	family_desc.text = _family_description(selected_family)
+	family_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	family_desc.add_theme_font_size_override("font_size", 15)
+	family_desc.add_theme_color_override("font_color", ArtDirection.PAPER)
+	summary.add_child(family_desc)
+	var notice := Label.new()
+	notice.text = "START RULE
+일반 3장 + 첫 희귀 카드 1장
+초기 덱 편집 및 정제 불가"
+	notice.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	notice.add_theme_color_override("font_color", ArtDirection.CYAN)
+	summary.add_child(notice)
+	var confirm := _button("이 카드군 선택", _confirm_family_selection, 270)
+	confirm.name = "ConfirmFamilyButton"
+	confirm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	summary.add_child(confirm)
+
+	var cards_panel := PanelContainer.new()
+	cards_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cards_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	cards_panel.add_theme_stylebox_override("panel", ArtDirection.panel_style(Color(0.045, 0.045, 0.065, 0.97), ArtDirection.MAGENTA, 2, 1))
+	body.add_child(cards_panel)
+	var cards_margin := MarginContainer.new()
+	for side in ["left", "right", "top", "bottom"]:
+		cards_margin.add_theme_constant_override("margin_%s" % side, 12)
+	cards_panel.add_child(cards_margin)
+	var cards_stack := VBoxContainer.new()
+	cards_margin.add_child(cards_stack)
+	var cards_title := Label.new()
+	cards_title.text = "%s 카드 전체 구성 · 세로 스크롤" % _family_name(selected_family)
+	cards_title.add_theme_font_size_override("font_size", 18)
+	cards_title.add_theme_color_override("font_color", ArtDirection.MAGENTA)
+	cards_stack.add_child(cards_title)
+	var card_scroll := ScrollContainer.new()
+	card_scroll.name = "FamilyCardVerticalScroll"
+	card_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	card_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	card_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	cards_stack.add_child(card_scroll)
+	var card_grid := GridContainer.new()
+	card_grid.name = "FamilyCardPreviewGrid"
+	card_grid.columns = 2
+	card_grid.add_theme_constant_override("h_separation", 8)
+	card_grid.add_theme_constant_override("v_separation", 8)
+	card_scroll.add_child(card_grid)
+	var starting_ids: Array[StringName] = []
+	var preview_deck := ContentFactory.starting_deck(selected_family, all_cards)
+	for instance in preview_deck.cards:
+		starting_ids.append(instance.card_def.id)
+	for card in all_cards:
+		if card.family_id != selected_family:
+			continue
+		var card_panel := PanelContainer.new()
+		card_panel.name = "FamilyCardPreview_%s" % card.id
+		card_panel.custom_minimum_size = Vector2(390, 116)
+		var accent := ArtDirection.YELLOW if card.id in starting_ids else _card_family_color(card.family_id)
+		card_panel.add_theme_stylebox_override("panel", ArtDirection.panel_style(Color(0.085, 0.06, 0.1, 0.98), accent, 2 if card.id in starting_ids else 1, 1))
+		var card_margin := MarginContainer.new()
+		for side in ["left", "right", "top", "bottom"]:
+			card_margin.add_theme_constant_override("margin_%s" % side, 10)
+		card_panel.add_child(card_margin)
+		var card_text := Label.new()
+		card_text.text = "%s%s
+%s · %.1fs · %s
+%s" % ["START // " if card.id in starting_ids else "", card.display_name, _rarity_name(card.rarity), card.execution_interval, " · ".join(card.targeting_labels()), card.description]
+		card_text.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		card_text.add_theme_font_size_override("font_size", 14)
+		card_text.add_theme_color_override("font_color", ArtDirection.PAPER)
+		card_margin.add_child(card_text)
+		card_grid.add_child(card_panel)
+	var back := _button("캐릭터 선택으로", _back_to_character_select, 200)
+	back.name = "FamilyBackButton"
+	stack.add_child(back)
+
+
+func _select_family(family: StringName) -> void:
+	if selected_character == null or not selected_character.allows_family(family):
+		return
+	selected_family = family
+	_show_family_select()
+
+
+func _family_playstyle(family: StringName) -> String:
+	return {
+		&"sword": "근접·처형·참격",
+		&"spear": "직선·관통·사거리",
+		&"blunt": "충격·넉백·소환",
+		&"fire": "연소·폭발·장판",
+		&"water": "젖음·제어·보호",
+		&"poison": "중독·확산·설치",
+	}.get(family, "")
+
+
+func _family_description(family: StringName) -> String:
+	return {
+		&"sword": "빠른 근접 참격과 딸피 우선 공격으로 전열을 정리하는 카드군입니다.",
+		&"spear": "긴 직선 사거리와 관통을 이용해 정렬된 적 무리를 꿰뚫습니다.",
+		&"blunt": "강한 넉백과 충격파, 로봇·골렘 소환으로 공간을 장악합니다.",
+		&"fire": "연소를 누적하고 폭발과 대형 장판으로 밀집 지역을 태웁니다.",
+		&"water": "젖음과 이동 제어, 보호막을 조합해 안정적으로 반응을 준비합니다.",
+		&"poison": "중독 스택을 전파하고 설치물과 폭발로 장기전을 강화합니다.",
+	}.get(family, "")
+
+
+func _confirm_family_selection() -> void:
+	if selected_family == &"":
+		return
+	selected_map = null
+	for map in all_maps:
+		if unlocks.is_unlocked("maps", map.id):
+			selected_map = map
+			break
+	flow.transition(RunFlowController.State.MAP_SELECT)
+	_show_map_select()
+
+
+func _show_map_select(_legacy_endless := false) -> void:
+	var stack := _selection_stack("MAP SELECT // 생존 맵", "마지막으로 전장 정보와 출현 로스터를 확인한 뒤 생존을 시작합니다", "STEP 03 / 03")
+	var map_title := Label.new()
+	map_title.text = "생존 맵 목록 · 좌우 스크롤"
+	map_title.add_theme_color_override("font_color", ArtDirection.CYAN)
+	stack.add_child(map_title)
+	var map_scroll := ScrollContainer.new()
+	map_scroll.name = "MapSelectHorizontalScroll"
+	map_scroll.custom_minimum_size.y = 104
+	map_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	map_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	stack.add_child(map_scroll)
+	var map_row := HBoxContainer.new()
+	map_row.add_theme_constant_override("separation", 10)
+	map_scroll.add_child(map_row)
+	for map in all_maps:
+		var entry := map
+		var tile := Button.new()
+		tile.name = "MapSelectEntry_%s" % map.id
+		tile.text = "%s
+%s" % [map.display_name, "다각형 생존 전장" if map.arena_shape == MapDef.ArenaShape.POLYGON else "원형 생존 전장"]
+		tile.custom_minimum_size = Vector2(330, 84)
+		tile.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		tile.disabled = not unlocks.is_unlocked("maps", map.id)
+		var selected := selected_map != null and selected_map.id == map.id
+		var accent := ArtDirection.YELLOW if selected else ArtDirection.CYAN
+		tile.add_theme_stylebox_override("normal", ArtDirection.panel_style(Color(0.075, 0.055, 0.095, 0.98), accent, 3 if selected else 1, 1))
+		tile.add_theme_stylebox_override("hover", ArtDirection.panel_style(Color(0.14, 0.07, 0.15, 0.99), ArtDirection.YELLOW, 3, 1))
+		tile.pressed.connect(func(): _select_map(entry))
+		map_row.add_child(tile)
+	var body := HBoxContainer.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_theme_constant_override("separation", 14)
+	stack.add_child(body)
+	if selected_map:
+		var info_panel := PanelContainer.new()
+		info_panel.name = "MapSelectDetail"
+		info_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		info_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		info_panel.add_theme_stylebox_override("panel", ArtDirection.panel_style(ArtDirection.INK, ArtDirection.MAGENTA, 3, 1))
+		body.add_child(info_panel)
+		var info_margin := MarginContainer.new()
+		for side in ["left", "right", "top", "bottom"]:
+			info_margin.add_theme_constant_override("margin_%s" % side, 16)
+		info_panel.add_child(info_margin)
+		var info := VBoxContainer.new()
+		info.add_theme_constant_override("separation", 9)
+		info_margin.add_child(info)
+		var name_label := Label.new()
+		name_label.text = selected_map.display_name
+		name_label.add_theme_font_size_override("font_size", 27)
+		name_label.add_theme_color_override("font_color", ArtDirection.YELLOW)
+		info.add_child(name_label)
+		var description := Label.new()
+		description.text = selected_map.description
+		description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		description.add_theme_font_size_override("font_size", 16)
+		description.add_theme_color_override("font_color", ArtDirection.PAPER)
+		info.add_child(description)
+		var rules := Label.new()
+		rules.text = "SURVIVAL RULE
+%s" % selected_map.survival_rules
+		rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		rules.add_theme_color_override("font_color", ArtDirection.CYAN)
+		info.add_child(rules)
+		info.add_child(HSeparator.new())
+		var roster_title := Label.new()
+		roster_title.text = "출현 적 / 보스"
+		roster_title.add_theme_font_size_override("font_size", 19)
+		roster_title.add_theme_color_override("font_color", ArtDirection.MAGENTA)
+		info.add_child(roster_title)
+		var roster_scroll := ScrollContainer.new()
+		roster_scroll.name = "MapEnemyRosterScroll"
+		roster_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		roster_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+		roster_scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+		info.add_child(roster_scroll)
+		var roster := VBoxContainer.new()
+		roster.add_theme_constant_override("separation", 5)
+		roster_scroll.add_child(roster)
+		for enemy in ContentFactory.all_enemies():
+			var enemy_label := Label.new()
+			enemy_label.text = "%s  ·  %s / %s  ·  %s" % [enemy.display_name, _enemy_rank_name(enemy.rank), _enemy_role_name(enemy.role), _enemy_spawn_text(enemy)]
+			enemy_label.add_theme_color_override("font_color", _enemy_rank_color(enemy.rank))
+			roster.add_child(enemy_label)
+		var art_panel := PanelContainer.new()
+		art_panel.custom_minimum_size.x = 470
+		art_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		art_panel.add_theme_stylebox_override("panel", ArtDirection.panel_style(Color(0.04, 0.045, 0.06, 0.98), ArtDirection.CYAN, 3, 1))
+		body.add_child(art_panel)
+		var art_margin := MarginContainer.new()
+		for side in ["left", "right", "top", "bottom"]:
+			art_margin.add_theme_constant_override("margin_%s" % side, 12)
+		art_panel.add_child(art_margin)
+		var art_stack := VBoxContainer.new()
+		art_stack.add_theme_constant_override("separation", 10)
+		art_margin.add_child(art_stack)
+		var art := TextureRect.new()
+		art.name = "MapPreviewImage"
+		art.texture = _map_preview_texture(selected_map.id)
+		art.custom_minimum_size = Vector2(440, 310)
+		art.size_flags_vertical = Control.SIZE_EXPAND_FILL
+		art.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+		art.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_COVERED
+		art_stack.add_child(art)
+		var loadout := Label.new()
+		loadout.text = "%s // %s
+시작 카드군: %s · 시작 덱 4장 · 자동 콤보 편성" % [selected_character.display_name, selected_map.display_name, _family_name(selected_family)]
+		loadout.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		loadout.add_theme_color_override("font_color", ArtDirection.PAPER)
+		art_stack.add_child(loadout)
+		var confirm := _button("이 맵에서 생존 시작", _confirm_map_selection, 440)
+		confirm.name = "ConfirmMapButton"
+		confirm.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		art_stack.add_child(confirm)
+	var back := _button("카드군 선택으로", _back_to_family_select, 200)
+	back.name = "MapBackButton"
+	stack.add_child(back)
+
+
+func _map_preview_texture(map_id: StringName) -> Texture2D:
+	if map_id == &"foundry":
+		return load("res://assets/arena_foundry.png") as Texture2D
+	return null
+
+
+func _select_map(map: MapDef, _legacy_endless := false) -> void:
+	selected_map = map
+	_show_map_select()
+
+
+func _confirm_map_selection() -> void:
+	if selected_map == null or selected_family == &"":
+		return
+	_start_run(selected_family)
+
+
+func _cancel_start_to_main() -> void:
+	flow.transition(RunFlowController.State.MAIN_MENU)
+	_show_main_menu()
+
+
+func _back_to_character_select() -> void:
+	flow.transition(RunFlowController.State.CHARACTER_SELECT)
+	_show_character_select()
+
+
+func _back_to_family_select() -> void:
+	flow.transition(RunFlowController.State.STARTING_FAMILY_SELECT)
+	_show_family_select()
 
 
 func _start_run(family: StringName) -> void:
-	var survivor_ab := bool(get_meta(&"starting_survivor_ab", false))
-	var mode := RunSession.Mode.SURVIVOR_AB if survivor_ab else RunSession.Mode.ENDLESS if bool(get_meta(&"starting_endless", false)) else RunSession.Mode.STANDARD
-	session = RunSession.create(int(Time.get_ticks_msec()), selected_map.id, selected_character.id, family, mode)
+	session = RunSession.create(int(Time.get_ticks_msec()), selected_map.id, selected_character.id, family, RunSession.Mode.SURVIVOR)
 	run_rng = RunRng.new(session.seed)
 	deck = ContentFactory.starting_deck(family, all_cards)
-	cycle = ContentFactory.default_cycle(deck)
+	cycle = ContentFactory.default_cycle(deck, selected_character.combo_slot_count(session.combo_slot_modifier))
+	run_map = null
 	flow.attach_session(session)
 	flow.transition(RunFlowController.State.RUN_MAP)
-	if survivor_ab:
-		_start_survivor_battle()
-		return
-	run_map = MapGenerator.generate(selected_map, run_rng)
-	map_controller.initialize(run_map)
-	_enter_first_combat_node()
-
+	_start_survivor_battle()
 
 func _enter_first_combat_node() -> void:
 	var first_combat: MapNode
@@ -965,8 +1849,17 @@ func _card_tile_text(card: CardInstance, sequence: int = -1) -> String:
 func _on_survivor_level_up(arena: BattleArena, level: int, xp: float, next_xp: float) -> void:
 	if not is_instance_valid(arena) or arena.ended:
 		return
+	var source_deck := arena.queued_survivor_deck if arena.queued_survivor_deck != null else arena.deck
+	var source_cycle := arena.queued_survivor_cycle if arena.queued_survivor_cycle != null else arena.cycle
+	deck = source_deck.duplicate_state()
+	cycle = CycleState.from_dict(source_cycle.to_dict())
 	get_tree().paused = true
 	survivor_reward_claimed = false
+	survivor_level_stage = SurvivorLevelStage.REWARD
+	survivor_reward_view = "acquire"
+	survivor_level_action = ""
+	survivor_card_rerolls_left = 1
+	survivor_card_offers = RewardOfferService.create_offer(all_cards, deck, run_rng, 3)
 	_show_survivor_level_overlay(arena, level, xp, next_xp)
 
 
@@ -998,178 +1891,212 @@ func _show_survivor_level_overlay(arena: BattleArena, level: int, xp: float, nex
 	margin.add_theme_constant_override("margin_bottom", 18)
 	panel.add_child(margin)
 	var stack := VBoxContainer.new()
-	stack.add_theme_constant_override("separation", 7)
+	stack.add_theme_constant_override("separation", 9)
 	margin.add_child(stack)
 	var title := Label.new()
-	title.text = "LEVEL %02d // BUILD BREAK" % level
+	title.text = "LEVEL %02d // CHOOSE ONE" % level if survivor_level_stage == SurvivorLevelStage.REWARD else "LEVEL %02d // DECK REFINEMENT" % level
 	title.add_theme_font_size_override("font_size", 30)
 	title.add_theme_color_override("font_color", ArtDirection.YELLOW)
 	stack.add_child(title)
 	var subtitle := Label.new()
-	subtitle.text = "전투 일시정지 · XP %.0f / %.0f · 보상 선택 후 콤보 슬롯과 카드 순서를 자유롭게 정비" % [xp, next_xp]
-	subtitle.add_theme_font_size_override("font_size", 13)
+	subtitle.text = "카드 획득·강화·유물·삭제 중 행동 하나만 선택 · XP %.0f / %.0f" % [xp, next_xp] if survivor_level_stage == SurvivorLevelStage.REWARD else "카드 순서와 콤보 배치만 정리 · 변경은 기존 콤보 회전과 남은 딜레이 종료 후 적용"
+	subtitle.add_theme_font_size_override("font_size", 14)
 	subtitle.add_theme_color_override("font_color", ArtDirection.CYAN)
 	stack.add_child(subtitle)
+	if survivor_level_stage == SurvivorLevelStage.REWARD:
+		_build_survivor_reward_screen(stack, arena, level, xp, next_xp)
+	else:
+		_build_survivor_refine_screen(stack, arena, level, xp, next_xp)
 
+
+func _build_survivor_reward_screen(stack: VBoxContainer, arena: BattleArena, level: int, xp: float, next_xp: float) -> void:
+	var tabs := HBoxContainer.new()
+	tabs.add_theme_constant_override("separation", 10)
+	var acquire_tab := _button("카드 획득", func(): survivor_reward_view = "acquire"; _show_survivor_level_overlay(arena, level, xp, next_xp), 220)
+	acquire_tab.name = "SurvivorAcquireModeButton"
+	acquire_tab.disabled = survivor_reward_view == "acquire"
+	tabs.add_child(acquire_tab)
+	var delete_tab := _button("카드 1장 삭제", func(): survivor_reward_view = "delete"; _show_survivor_level_overlay(arena, level, xp, next_xp), 220)
+	delete_tab.name = "SurvivorDeleteModeButton"
+	delete_tab.disabled = survivor_reward_view == "delete" or deck.cards.size() <= cycle.combos.size()
+	tabs.add_child(delete_tab)
+	var rule := Label.new()
+	rule.text = "선택 완료 후 다른 보상 행동은 잠깁니다"
+	rule.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	rule.add_theme_color_override("font_color", ArtDirection.PAPER_DIM)
+	tabs.add_child(rule)
+	stack.add_child(tabs)
+	if survivor_reward_view == "delete":
+		_build_survivor_delete_choices(stack, arena, level, xp, next_xp)
+		return
+	var heading := Label.new()
+	heading.text = "카드 후보 · 최대 1장 획득"
+	heading.add_theme_font_size_override("font_size", 19)
+	heading.add_theme_color_override("font_color", ArtDirection.PAPER)
+	stack.add_child(heading)
+	var offers := HBoxContainer.new()
+	offers.add_theme_constant_override("separation", 12)
+	for offer_index in range(survivor_card_offers.size()):
+		var card_def := survivor_card_offers[offer_index]
+		var card_button := _button("%s\n%s · %s · %.1fs\n%s\n%s" % [card_def.display_name, _family_name(card_def.family_id), _rarity_name(card_def.rarity), card_def.execution_interval, " · ".join(card_def.targeting_labels()), card_def.description], func(): _survivor_take_card(arena, card_def, level, xp, next_xp), 360)
+		card_button.name = "SurvivorCardOffer_%d" % offer_index
+		card_button.custom_minimum_size.y = 190
+		card_button.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		offers.add_child(card_button)
+	stack.add_child(offers)
+	var controls := HBoxContainer.new()
+	controls.add_theme_constant_override("separation", 10)
+	var reroll := _button("REROLL · 남은 %d" % survivor_card_rerolls_left, func(): _survivor_reroll_cards(arena, level, xp, next_xp), 230)
+	reroll.name = "SurvivorRerollButton"
+	reroll.disabled = survivor_card_rerolls_left <= 0
+	controls.add_child(reroll)
+	var upgrade_card := _survivor_upgrade_candidate(level)
+	if upgrade_card != null:
+		var upgrade := _button("카드 강화\n%s Lv.%d → Lv.%d" % [upgrade_card.display_name, upgrade_card.upgrade_level, upgrade_card.upgrade_level + 1], func(): _survivor_upgrade_card(arena, upgrade_card.instance_id, level, xp, next_xp), 260)
+		upgrade.name = "SurvivorUpgradeReward"
+		controls.add_child(upgrade)
+	var relic := _survivor_next_relic(level)
+	if not relic.is_empty():
+		var relic_button := _button("유물 획득\n%s" % relic["name"], func(): _survivor_take_relic(arena, relic, level, xp, next_xp), 250)
+		relic_button.name = "SurvivorRelicReward"
+		controls.add_child(relic_button)
+	var skip := _button("행동 건너뛰기", func(): _survivor_skip_action(arena, level, xp, next_xp), 200)
+	skip.name = "SurvivorSkipReward"
+	controls.add_child(skip)
+	stack.add_child(controls)
+
+
+func _build_survivor_delete_choices(stack: VBoxContainer, arena: BattleArena, level: int, xp: float, next_xp: float) -> void:
+	var heading := Label.new()
+	heading.text = "삭제할 카드 선택 · 최대 1장"
+	heading.add_theme_font_size_override("font_size", 19)
+	heading.add_theme_color_override("font_color", ArtDirection.DANGER)
+	stack.add_child(heading)
+	var scroll := ScrollContainer.new()
+	scroll.name = "SurvivorDeleteChoiceScroll"
+	scroll.custom_minimum_size.y = 480
+	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
+	stack.add_child(scroll)
+	var list := VBoxContainer.new()
+	list.add_theme_constant_override("separation", 7)
+	scroll.add_child(list)
+	for card in deck.cards:
+		var delete_card := card
+		var button := _button("삭제 // %s\n%s" % [card.display_name, _card_summary(card)], func(): _survivor_delete_card(arena, delete_card.instance_id, level, xp, next_xp), 1090)
+		button.name = "SurvivorDeleteChoice_%s" % card.instance_id
+		button.custom_minimum_size.y = 70
+		button.disabled = deck.cards.size() <= cycle.combos.size() or card.locked or card.undeletable
+		list.add_child(button)
+
+
+func _build_survivor_refine_screen(stack: VBoxContainer, arena: BattleArena, _level: int, _xp: float, _next_xp: float) -> void:
 	if cycle.combos.is_empty():
 		_ensure_combo(0)
-	if not survivor_reward_claimed:
-		var offers := HBoxContainer.new()
-		offers.add_theme_constant_override("separation", 10)
-		var card_offers := RewardOfferService.create_offer(all_cards, deck, run_rng, 2)
-		for card_def in card_offers:
-			var card_button := _button("CARD\n%s · %s\n%.1fs · %s" % [card_def.display_name, _family_name(card_def.family_id), card_def.execution_interval, " · ".join(card_def.targeting_labels())], func(): _survivor_take_card(arena, card_def, level, xp, next_xp), 260)
-			card_button.custom_minimum_size.y = 70
-			card_button.tooltip_text = card_def.description
-			offers.add_child(card_button)
-		var relic := _survivor_next_relic(level)
-		if relic.is_empty():
-			var no_relic := _button("RELIC\n모든 유물 획득 완료", func(): pass, 260)
-			no_relic.disabled = true
-			offers.add_child(no_relic)
-		else:
-			var relic_button := _button("RELIC\n%s\n%s" % [relic["name"], relic["description"]], func(): _survivor_take_relic(arena, relic, level, xp, next_xp), 260)
-			relic_button.custom_minimum_size.y = 70
-			offers.add_child(relic_button)
-		offers.add_child(_button("보상 건너뛰기\n덱 정비만", func(): survivor_reward_claimed = true; _show_survivor_level_overlay(arena, level, xp, next_xp), 200))
-		stack.add_child(offers)
-	else:
-		var claimed := Label.new()
-		claimed.text = "보상 선택 완료 · 아래에서 슬롯과 배치를 정비한 뒤 재개하세요"
-		claimed.add_theme_color_override("font_color", ArtDirection.CYAN)
-		claimed.add_theme_font_size_override("font_size", 16)
-		stack.add_child(claimed)
-
-	var toolbar := HBoxContainer.new()
-	toolbar.add_theme_constant_override("separation", 12)
-	toolbar.add_child(_button("＋ COMBO SLOT", func(): _survivor_add_combo(arena, level, xp, next_xp), 220))
-	var toolbar_hint := Label.new()
-	toolbar_hint.text = "%d개 슬롯 · 가로/세로 스크롤 · 슬롯 삭제 시 카드는 자동 재배치" % cycle.combos.size()
-	toolbar_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	toolbar_hint.add_theme_color_override("font_color", ArtDirection.PAPER_DIM)
-	toolbar.add_child(toolbar_hint)
-	stack.add_child(toolbar)
-
+	var action := Label.new()
+	action.text = "선택 완료: %s · %d개 콤보 슬롯은 %s의 기본 구성" % [_survivor_action_label(), cycle.combos.size(), selected_character.display_name]
+	action.add_theme_font_size_override("font_size", 17)
+	action.add_theme_color_override("font_color", ArtDirection.CYAN)
+	stack.add_child(action)
 	var scroll := ScrollContainer.new()
 	scroll.name = "SurvivorComboScroll"
-	scroll.custom_minimum_size.y = 330
+	scroll.custom_minimum_size.y = 470
 	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	scroll.vertical_scroll_mode = ScrollContainer.SCROLL_MODE_AUTO
 	stack.add_child(scroll)
 	var board := HBoxContainer.new()
 	board.name = "SurvivorComboBoard"
-	board.add_theme_constant_override("separation", 10)
+	board.add_theme_constant_override("separation", 12)
 	scroll.add_child(board)
-
 	for combo_index in range(cycle.combos.size()):
 		var combo: ComboState = cycle.combos[combo_index]
-		var lane_index := combo_index
 		var column := VBoxContainer.new()
-		column.custom_minimum_size.x = 226
-		var header := HBoxContainer.new()
+		column.custom_minimum_size.x = 260
 		var heading := Label.new()
-		var duration := _combo_duration(combo)
-		heading.text = "COMBO %s\n%d장 · %.1f초" % [_combo_label(combo_index), combo.card_instance_ids.size(), duration]
-		heading.custom_minimum_size.x = 166
-		heading.add_theme_font_size_override("font_size", 16)
+		heading.text = "COMBO %s\n%d장 · %.1f초" % [_combo_label(combo_index), combo.card_instance_ids.size(), _combo_duration(combo)]
+		heading.add_theme_font_size_override("font_size", 17)
 		heading.add_theme_color_override("font_color", ArtDirection.CYAN)
-		header.add_child(heading)
-		var remove_lane := _button("−\nSLOT", func(): _survivor_remove_combo(arena, lane_index, level, xp, next_xp), 52)
-		remove_lane.custom_minimum_size = Vector2(52, 46)
-		remove_lane.disabled = cycle.combos.size() <= MIN_COMBO_SLOTS
-		header.add_child(remove_lane)
-		column.add_child(header)
-
+		column.add_child(heading)
 		var zone := ComboDropZone.new()
 		zone.configure(combo_index)
-		zone.add_theme_constant_override("separation", 4)
-		zone.card_dropped.connect(func(card_id, target_combo, target_index): _survivor_drop_card(arena, card_id, target_combo, target_index, level, xp, next_xp))
+		zone.add_theme_constant_override("separation", 5)
+		zone.card_dropped.connect(func(card_id, target_combo, target_index): _survivor_drop_card(arena, card_id, target_combo, target_index, _level, _xp, _next_xp))
 		column.add_child(zone)
 		for card_index in range(combo.card_instance_ids.size()):
-			var card_id := combo.card_instance_ids[card_index]
-			var card := deck.get_card(card_id)
+			var card := deck.get_card(combo.card_instance_ids[card_index])
 			if card == null:
 				continue
-			var row := HBoxContainer.new()
-			row.add_theme_constant_override("separation", 4)
 			var drag_card := ComboDragCard.new()
-			drag_card.configure(card_id, combo_index, card_index, _card_tile_text(card, card_index + 1))
-			drag_card.custom_minimum_size = Vector2(176, 76)
+			drag_card.configure(card.instance_id, combo_index, card_index, _card_tile_text(card, card_index + 1))
+			drag_card.custom_minimum_size = Vector2(250, 82)
 			drag_card.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-			drag_card.card_dropped.connect(func(dropped_id, target_combo, target_index): _survivor_drop_card(arena, dropped_id, target_combo, target_index, level, xp, next_xp))
-			row.add_child(drag_card)
-			var remove := _button("×", func(): _survivor_delete_card(arena, card_id, level, xp, next_xp), 38)
-			remove.custom_minimum_size = Vector2(38, 76)
-			remove.disabled = deck.cards.size() <= 1 or card.undeletable or card.locked
-			row.add_child(remove)
-			zone.add_child(row)
+			drag_card.card_dropped.connect(func(dropped_id, target_combo, target_index): _survivor_drop_card(arena, dropped_id, target_combo, target_index, _level, _xp, _next_xp))
+			zone.add_child(drag_card)
 		if combo.card_instance_ids.is_empty():
 			var empty := Label.new()
-			empty.text = "DROP CARD\n빈 슬롯은 전투 재개 전 채워주세요"
+			empty.text = "DROP CARD\n전투 재개 전 한 장 이상 배치"
 			empty.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 			empty.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-			empty.custom_minimum_size.y = 76
+			empty.custom_minimum_size.y = 82
 			empty.mouse_filter = Control.MOUSE_FILTER_IGNORE
 			empty.add_theme_color_override("font_color", ArtDirection.YELLOW)
 			zone.add_child(empty)
 		board.add_child(column)
-
-	var delete_column := VBoxContainer.new()
-	delete_column.custom_minimum_size.x = 210
-	var delete_title := Label.new()
-	delete_title.text = "DELETE ZONE"
-	delete_title.add_theme_font_size_override("font_size", 16)
-	delete_title.add_theme_color_override("font_color", ArtDirection.DANGER)
-	delete_column.add_child(delete_title)
-	var delete_zone := ComboDropZone.new()
-	delete_zone.configure(-2)
-	delete_zone.custom_minimum_size.y = 132
-	delete_zone.card_dropped.connect(func(card_id, _target_combo, _target_index): _survivor_delete_card(arena, card_id, level, xp, next_xp))
-	delete_column.add_child(delete_zone)
-	var delete_hint := Label.new()
-	delete_hint.text = "카드를 여기로 드래그\n최소 1장은 유지"
-	delete_hint.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	delete_hint.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
-	delete_hint.custom_minimum_size.y = 112
-	delete_hint.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	delete_hint.add_theme_color_override("font_color", ArtDirection.DANGER)
-	delete_zone.add_child(delete_hint)
-	board.add_child(delete_column)
-
 	var validation := ComboValidator.validate(deck, cycle)
 	var footer := HBoxContainer.new()
 	footer.add_theme_constant_override("separation", 14)
 	var state_label := Label.new()
-	state_label.text = "VALID // %d개 콤보로 전투 재개 가능" % cycle.combos.size() if validation.valid else "INVALID // 모든 카드를 배치하고 빈 콤보를 채우거나 삭제하세요"
+	state_label.text = "VALID // 카드 배치 완료" if validation.valid else "INVALID // 모든 고정 콤보 슬롯에 한 장 이상 배치하세요"
 	state_label.custom_minimum_size.x = 790
 	state_label.add_theme_font_size_override("font_size", 15)
 	state_label.add_theme_color_override("font_color", ArtDirection.CYAN if validation.valid else ArtDirection.DANGER)
 	footer.add_child(state_label)
-	var resume := _button("전투 재개", func(): _resume_survivor(arena), 300)
-	resume.disabled = not survivor_reward_claimed or not validation.valid
+	var resume := _button("정제 완료 · 전투 재개", func(): _resume_survivor(arena), 300)
+	resume.name = "SurvivorResumeButton"
+	resume.disabled = not validation.valid
 	footer.add_child(resume)
 	stack.add_child(footer)
 
 
-func _survivor_add_combo(arena: BattleArena, level: int, xp: float, next_xp: float) -> void:
-	cycle.combos.append(ComboState.create(_next_combo_id(), 0))
-	_show_survivor_level_overlay(arena, level, xp, next_xp)
-
-
-func _survivor_remove_combo(arena: BattleArena, combo_index: int, level: int, xp: float, next_xp: float) -> void:
-	if not _remove_combo_slot_data(combo_index):
+func _survivor_reroll_cards(arena: BattleArena, level: int, xp: float, next_xp: float) -> void:
+	if survivor_reward_claimed or survivor_reward_view != "acquire" or survivor_card_rerolls_left <= 0:
 		return
-	if ComboValidator.validate(deck, cycle)["valid"]:
-		arena.refresh_survivor_cycle()
+	var previous_ids: Array[StringName] = []
+	for card in survivor_card_offers:
+		previous_ids.append(card.id)
+	var filtered_pool: Array[CardDef] = []
+	for card in all_cards:
+		if not previous_ids.has(card.id):
+			filtered_pool.append(card)
+	survivor_card_offers = RewardOfferService.create_offer(filtered_pool if filtered_pool.size() >= 3 else all_cards, deck, run_rng, 3)
+	survivor_card_rerolls_left -= 1
 	_show_survivor_level_overlay(arena, level, xp, next_xp)
 
+
+func _survivor_skip_action(arena: BattleArena, level: int, xp: float, next_xp: float) -> void:
+	if survivor_reward_claimed:
+		return
+	survivor_reward_claimed = true
+	survivor_level_action = "skip"
+	survivor_level_stage = SurvivorLevelStage.REFINE
+	_show_survivor_level_overlay(arena, level, xp, next_xp)
+
+
+func _survivor_action_label() -> String:
+	match survivor_level_action:
+		"acquire": return "카드 1장 획득"
+		"delete": return "카드 1장 삭제"
+		"upgrade": return "카드 1장 강화"
+		"relic": return "유물 1개 획득"
+		_: return "행동 건너뛰기"
 
 func _survivor_best_lane(_card_def: CardDef) -> int:
 	return _shortest_combo_index()
 
 
 func _survivor_take_card(arena: BattleArena, card_def: CardDef, level: int, xp: float, next_xp: float) -> void:
+	if survivor_reward_claimed or survivor_level_stage != SurvivorLevelStage.REWARD or not survivor_card_offers.has(card_def):
+		return
 	var lane := _survivor_best_lane(card_def)
 	if lane < 0:
 		return
@@ -1179,9 +2106,9 @@ func _survivor_take_card(arena: BattleArena, card_def: CardDef, level: int, xp: 
 	_ensure_combo(lane).card_instance_ids.append(instance.instance_id)
 	_normalize_cycle(false)
 	survivor_reward_claimed = true
-	arena.refresh_survivor_cycle()
+	survivor_level_action = "acquire"
+	survivor_level_stage = SurvivorLevelStage.REFINE
 	_show_survivor_level_overlay(arena, level, xp, next_xp)
-
 
 func _survivor_next_relic(level: int) -> Dictionary:
 	var available: Array[Dictionary] = []
@@ -1193,19 +2120,44 @@ func _survivor_next_relic(level: int) -> Dictionary:
 	return available[level % available.size()]
 
 
+func _survivor_upgrade_candidate(level: int) -> CardInstance:
+	if deck == null or deck.cards.is_empty():
+		return null
+	var candidates: Array[CardInstance] = []
+	for card in deck.cards:
+		if card.upgrade_level < CardUpgradeService.MAX_LEVEL:
+			candidates.append(card)
+	if candidates.is_empty():
+		return null
+	return candidates[(maxi(1, level) - 1) % candidates.size()]
+
+
+func _survivor_upgrade_card(arena: BattleArena, card_id: StringName, level: int, xp: float, next_xp: float) -> void:
+	if survivor_reward_claimed or survivor_level_stage != SurvivorLevelStage.REWARD:
+		return
+	var card := deck.get_card(card_id)
+	if not CardUpgradeService.upgrade(card):
+		return
+	survivor_reward_claimed = true
+	survivor_level_action = "upgrade"
+	survivor_level_stage = SurvivorLevelStage.REFINE
+	_show_survivor_level_overlay(arena, level, xp, next_xp)
+
 func _survivor_take_relic(arena: BattleArena, relic: Dictionary, level: int, xp: float, next_xp: float) -> void:
+	if survivor_reward_claimed or survivor_level_stage != SurvivorLevelStage.REWARD:
+		return
 	var relic_id := StringName(relic.get("id", ""))
 	if relic_id == &"" or session.relic_ids.has(relic_id):
 		return
 	session.relic_ids.append(relic_id)
 	arena.apply_survivor_relic(relic)
 	survivor_reward_claimed = true
+	survivor_level_action = "relic"
+	survivor_level_stage = SurvivorLevelStage.REFINE
 	_show_survivor_level_overlay(arena, level, xp, next_xp)
 
-
 func _survivor_drop_card(arena: BattleArena, card_id: StringName, target_combo_index: int, target_card_index: int, level: int, xp: float, next_xp: float) -> void:
-	if target_combo_index == -2:
-		_survivor_delete_card(arena, card_id, level, xp, next_xp)
+	if survivor_level_stage != SurvivorLevelStage.REFINE or target_combo_index < 0:
 		return
 	var source_combo_index := -1
 	var source_card_index := -1
@@ -1225,13 +2177,12 @@ func _survivor_drop_card(arena: BattleArena, card_id: StringName, target_combo_i
 	insertion_index = clampi(insertion_index, 0, target_combo.card_instance_ids.size())
 	target_combo.card_instance_ids.insert(insertion_index, card_id)
 	_normalize_cycle(false)
-	if ComboValidator.validate(deck, cycle)["valid"]:
-		arena.refresh_survivor_cycle()
 	_show_survivor_level_overlay(arena, level, xp, next_xp)
 
-
 func _survivor_delete_card(arena: BattleArena, card_id: StringName, level: int, xp: float, next_xp: float) -> void:
-	if deck.cards.size() <= 1:
+	if survivor_reward_claimed or survivor_level_stage != SurvivorLevelStage.REWARD or survivor_reward_view != "delete":
+		return
+	if deck.cards.size() <= cycle.combos.size():
 		return
 	var card := deck.get_card(card_id)
 	if card == null or card.locked or card.undeletable:
@@ -1239,13 +2190,15 @@ func _survivor_delete_card(arena: BattleArena, card_id: StringName, level: int, 
 	_remove_card_from_cycle(card_id)
 	deck.remove_card(card_id)
 	_normalize_cycle(false)
-	if ComboValidator.validate(deck, cycle)["valid"]:
-		arena.refresh_survivor_cycle()
+	survivor_reward_claimed = true
+	survivor_level_action = "delete"
+	survivor_level_stage = SurvivorLevelStage.REFINE
 	_show_survivor_level_overlay(arena, level, xp, next_xp)
-
 
 func _resume_survivor(arena: BattleArena) -> void:
 	if not survivor_reward_claimed or not ComboValidator.validate(deck, cycle)["valid"]:
+		return
+	if not arena.queue_survivor_cycle(deck, cycle):
 		return
 	if is_instance_valid(survivor_level_overlay):
 		survivor_level_overlay.queue_free()
@@ -1257,11 +2210,17 @@ func _start_survivor_battle() -> void:
 	flow.transition(RunFlowController.State.ENCOUNTER)
 	_clear_screen()
 	survivor_arena = BattleArena.new()
-	survivor_arena.name = "SurvivorArena_B"
+	survivor_arena.name = "SurvivorArena"
 	root_control.add_child(survivor_arena)
 	survivor_arena.completed.connect(func(success, summary): call_deferred(&"_on_survivor_completed", success, summary))
 	survivor_arena.survivor_level_up_requested.connect(func(level, xp, next_xp): _on_survivor_level_up(survivor_arena, level, xp, next_xp))
-	survivor_arena.initialize_survivor(selected_character, deck, cycle, run_rng)
+	survivor_arena.survivor_currency_changed.connect(_on_survivor_currency_changed)
+	survivor_arena.initialize_survivor(selected_character, deck, cycle, run_rng, session.currency)
+
+
+func _on_survivor_currency_changed(_amount: int, total: int) -> void:
+	if session:
+		session.currency = total
 
 
 func _on_survivor_completed(_success: bool, summary: Dictionary) -> void:
@@ -1385,16 +2344,16 @@ func _show_result(success: bool, summary: Dictionary) -> void:
 		session.success = success
 		session.ended = true
 	flow.state = RunFlowController.State.RESULT
-	var survivor_result := session != null and session.mode == RunSession.Mode.SURVIVOR_AB
-	var title := "B · 생존 기록" if survivor_result else "런 클리어" if success else "런 종료"
-	var subtitle := "무한 생존 실험 결과 · 같은 시작 빌드로 A안과 비교할 수 있습니다" if survivor_result else "보스 검증을 통과했습니다" if success else "빌드를 정비하고 다시 도전하세요"
+	var survivor_result := session != null and session.mode == RunSession.Mode.SURVIVOR
+	var title := "생존 기록" if survivor_result else "런 클리어" if success else "런 종료"
+	var subtitle := "무한 생존 결과 · 덱과 콤보를 정비해 다음 기록에 도전하세요" if survivor_result else "보스 검증을 통과했습니다" if success else "빌드를 정비하고 다시 도전하세요"
 	var stack := _screen_stack(title, subtitle)
 	var report := Label.new()
 	if survivor_result:
 		var survived := int(summary.get("elapsed", 0.0))
-		report.text = "실험안: B · 무한 생존\n맵: %s\n캐릭터: %s\n카드군: %s\n생존 시간: %02d:%02d\n도달 레벨: %d\n덱: %d장\n유물: %d개\n처치: %d\n종료 사유: %s" % [selected_map.display_name, selected_character.display_name, _family_name(session.starting_family_id), survived / 60, survived % 60, int(summary.get("level", 1)), deck.cards.size(), int(summary.get("relics", 0)), int(summary.get("kills", 0)), summary.get("reason", "체력 0")]
+		report.text = "모드: 무한 생존\n맵: %s\n캐릭터: %s\n카드군: %s\n생존 시간: %02d:%02d\n도달 레벨: %d\n덱: %d장\n유물: %d개\n수집 재화: %d\n처치: %d\n종료 사유: %s" % [selected_map.display_name, selected_character.display_name, _family_name(session.starting_family_id), survived / 60, survived % 60, int(summary.get("level", 1)), deck.cards.size(), int(summary.get("relics", 0)), int(summary.get("currency", session.currency)), int(summary.get("kills", 0)), summary.get("reason", "체력 0")]
 	else:
-		report.text = "실험안: A · 노드 런\n맵: %s\n캐릭터: %s\n카드군: %s\n덱: %d장\n재화: %d\n처치: %d\n종료 사유: %s" % [selected_map.display_name, selected_character.display_name, _family_name(session.starting_family_id), deck.cards.size(), session.currency, int(summary.get("kills", 0)), summary.get("reason", "보스 처치" if success else "체력 0")]
+		report.text = "모드: 레거시 런\n맵: %s\n캐릭터: %s\n카드군: %s\n덱: %d장\n재화: %d\n처치: %d\n종료 사유: %s" % [selected_map.display_name, selected_character.display_name, _family_name(session.starting_family_id), deck.cards.size(), session.currency, int(summary.get("kills", 0)), summary.get("reason", "보스 처치" if success else "체력 0")]
 	report.add_theme_font_size_override("font_size", 20)
 	stack.add_child(report)
 	stack.add_child(_button("메인 메뉴", func(): flow.state = RunFlowController.State.MAIN_MENU; _show_main_menu()))

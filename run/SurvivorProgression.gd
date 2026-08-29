@@ -6,7 +6,7 @@ var xp := 0.0
 var next_xp := threshold_for(1)
 
 static func threshold_for(current_level: int) -> float:
-	return 6.0 + maxf(0.0, float(current_level - 1)) * 3.0
+	return ceilf(6.0 * pow(1.35, maxf(0.0, float(current_level - 1))))
 
 func add_xp(amount: float) -> int:
 	xp += maxf(0.0, amount)

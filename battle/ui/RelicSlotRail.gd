@@ -15,10 +15,7 @@ func set_relics(value: Array) -> void:
 	queue_redraw()
 
 func _draw() -> void:
-	# Cyan under-print and magenta over-print make the rail feel physically misregistered.
-	_draw_box(Rect2(5, 5, size.x - 5, size.y - 5), Color(ArtDirection.CYAN.r, ArtDirection.CYAN.g, ArtDirection.CYAN.b, 0.28), ArtDirection.CYAN, 2, 1)
-	_draw_box(Rect2(Vector2.ZERO, size - Vector2(5, 5)), Color(ArtDirection.INK.r, ArtDirection.INK.g, ArtDirection.INK.b, 0.94), ArtDirection.MAGENTA, 3, 1)
-	draw_rect(Rect2(0, 0, 168, 7), ArtDirection.MAGENTA)
+
 	draw_string(ThemeDB.fallback_font, Vector2(17, 25), "RELICS // %02d" % relics.size(), HORIZONTAL_ALIGNMENT_LEFT, -1, 13, ArtDirection.PAPER)
 	var slot_size := 38.0
 	var gap := 11.0

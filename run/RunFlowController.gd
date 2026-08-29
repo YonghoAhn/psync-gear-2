@@ -21,10 +21,10 @@ enum State {
 
 const ALLOWED: Dictionary = {
 	State.BOOT: [State.MAIN_MENU],
-	State.MAIN_MENU: [State.MAP_SELECT],
-	State.MAP_SELECT: [State.CHARACTER_SELECT, State.MAIN_MENU],
-	State.CHARACTER_SELECT: [State.STARTING_FAMILY_SELECT, State.MAP_SELECT],
-	State.STARTING_FAMILY_SELECT: [State.RUN_MAP, State.CHARACTER_SELECT],
+	State.MAIN_MENU: [State.CHARACTER_SELECT],
+	State.CHARACTER_SELECT: [State.STARTING_FAMILY_SELECT, State.MAIN_MENU],
+	State.STARTING_FAMILY_SELECT: [State.MAP_SELECT, State.CHARACTER_SELECT],
+	State.MAP_SELECT: [State.RUN_MAP, State.STARTING_FAMILY_SELECT],
 	State.RUN_MAP: [State.DECK_EDIT, State.ENCOUNTER, State.SHOP, State.REST, State.EVENT, State.RESULT],
 	State.ENCOUNTER: [State.REWARD, State.RESULT],
 	State.REWARD: [State.DECK_EDIT, State.RUN_MAP, State.RESULT],
@@ -34,7 +34,6 @@ const ALLOWED: Dictionary = {
 	State.EVENT: [State.REWARD, State.DECK_EDIT, State.RUN_MAP, State.RESULT],
 	State.RESULT: [State.MAIN_MENU],
 }
-
 var state: State = State.BOOT
 var session: RunSession
 

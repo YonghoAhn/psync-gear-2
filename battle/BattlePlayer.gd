@@ -30,6 +30,7 @@ var consumables := [
 var selected_consumable := 0
 var consumables_enabled := false
 var facing_direction := Vector2.RIGHT
+var world_health_bar: ProgressBar
 
 func setup(character: CharacterDef) -> void:
 	max_hp = character.base_max_hp
@@ -42,7 +43,38 @@ func setup(character: CharacterDef) -> void:
 
 func _ready() -> void:
 	add_to_group(&"battle_player")
+	_build_world_health_bar()
 	_emit_consumable()
+
+
+func _build_world_health_bar() -> void:
+	world_health_bar = ProgressBar.new()
+	world_health_bar.name = "WorldHealthBar"
+	world_health_bar.position = Vector2(-46, 31)
+	world_health_bar.size = Vector2(92, 9)
+	world_health_bar.z_index = 20
+	world_health_bar.show_percentage = false
+	world_health_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var background := StyleBoxFlat.new()
+	background.bg_color = Color(0.025, 0.02, 0.035, 0.94)
+	background.border_color = ArtDirection.VOID
+	background.set_border_width_all(2)
+	var fill := StyleBoxFlat.new()
+	fill.bg_color = ArtDirection.MAGENTA
+	fill.border_color = ArtDirection.PAPER
+	fill.set_border_width_all(1)
+	world_health_bar.add_theme_stylebox_override("background", background)
+	world_health_bar.add_theme_stylebox_override("fill", fill)
+	add_child(world_health_bar)
+	update_world_health_bar()
+
+
+func update_world_health_bar() -> void:
+	if not is_instance_valid(world_health_bar):
+		return
+	world_health_bar.max_value = maxf(1.0, max_hp)
+	world_health_bar.value = clampf(hp, 0.0, max_hp)
+	world_health_bar.tooltip_text = "HP %.0f / %.0f · SH %.0f" % [hp, max_hp, shield]
 
 ## 전투 화면 위의 HUD/Control이 클릭을 소비하더라도 반드시 전투 입력을 받는다.
 func _input(event: InputEvent) -> void:
@@ -98,6 +130,7 @@ func take_hit(amount: float) -> void:
 	var shield_damage := minf(shield, amount)
 	shield -= shield_damage
 	hp = maxf(0.0, hp - (amount - shield_damage))
+	update_world_health_bar()
 	health_changed.emit(hp, max_hp, shield)
 	_invincible_left = 0.28
 	_spawn_vfx(CombatVfx.Kind.IMPACT, ArtDirection.DANGER, 45.0, 0.28, CombatVfx.Side.HOSTILE)
@@ -123,6 +156,7 @@ func use_consumable() -> bool:
 			_spawn_vfx(CombatVfx.Kind.RING, ArtDirection.YELLOW, 90.0, 0.6)
 	item["count"] = int(item["count"]) - 1
 	consumables[selected_consumable] = item
+	update_world_health_bar()
 	health_changed.emit(hp, max_hp, shield)
 	_emit_consumable()
 	return true
@@ -134,6 +168,7 @@ func use_potion() -> bool:
 
 func grant_shield(amount: float) -> void:
 	shield += amount
+	update_world_health_bar()
 	health_changed.emit(hp, max_hp, shield)
 	_spawn_vfx(CombatVfx.Kind.SHIELD, ArtDirection.CYAN, 70.0, 0.55)
 

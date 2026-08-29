@@ -40,6 +40,18 @@ func family_counts() -> Dictionary:
 	return counts
 
 
+func duplicate_state() -> DeckState:
+	var result := DeckState.new()
+	for card in cards:
+		var copied := CardInstance.create(card.card_def, card.acquired_from, card.instance_id)
+		copied.card_def_id = card.card_def_id
+		copied.upgrade_level = card.upgrade_level
+		copied.bonus_modifiers = card.bonus_modifiers.duplicate(true)
+		copied.locked = card.locked
+		copied.undeletable = card.undeletable
+		result.cards.append(copied)
+	return result
+
 func serialize() -> Dictionary:
 	var result: Array = []
 	for card in cards:

@@ -46,8 +46,6 @@ func resolve(card: CardInstance, context: Dictionary) -> void:
 	var card_def := card.card_def
 	if card_def == null or arena.ended:
 		return
-	if not bool(context.get("has_target", false)):
-		return
 	var origin: Vector2 = context["origin"]
 	var aim: Vector2 = context["aim"]
 	var effect_point: Vector2 = context["effect_point"]

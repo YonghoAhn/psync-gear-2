@@ -3,6 +3,7 @@ class_name CycleRunner
 
 signal card_executed(card: CardInstance, combo_index: int, card_index: int)
 signal combo_changed(combo_index: int)
+signal configuration_applied(deck: DeckState, cycle: CycleState)
 
 var _deck: DeckState
 var _cycle: CycleState
@@ -15,6 +16,9 @@ var _cooldown_card_indices: Array[int] = []
 var _active_combo_index := 0
 var _active_card_index := 0
 var _running := false
+var _pending_deck: DeckState
+var _pending_cycle: CycleState
+var _pending_lane_ready: Array[bool] = []
 
 
 func configure(deck: DeckState, cycle: CycleState, execute_callback: Callable) -> bool:
@@ -23,7 +27,12 @@ func configure(deck: DeckState, cycle: CycleState, execute_callback: Callable) -
 	_deck = deck
 	_cycle = cycle
 	_execute = execute_callback
-	var lane_count := cycle.combos.size()
+	_reset_lane_state(cycle.combos.size())
+	_clear_pending_configuration()
+	return true
+
+
+func _reset_lane_state(lane_count: int) -> void:
 	_card_indices.resize(lane_count)
 	_remaining.resize(lane_count)
 	_cooldown_cards.resize(lane_count)
@@ -36,7 +45,6 @@ func configure(deck: DeckState, cycle: CycleState, execute_callback: Callable) -
 	_cooldown_card_indices.fill(0)
 	_active_combo_index = 0
 	_active_card_index = 0
-	return true
 
 
 func start() -> void:
@@ -47,11 +55,35 @@ func stop() -> void:
 	_running = false
 
 
+func queue_configuration(deck: DeckState, cycle: CycleState) -> bool:
+	if not ComboValidator.validate(deck, cycle)["valid"] or _cycle == null:
+		return false
+	_pending_deck = deck
+	_pending_cycle = cycle
+	_pending_lane_ready.resize(_cycle.combos.size())
+	_pending_lane_ready.fill(false)
+	for combo_index in range(_cycle.combos.size()):
+		if _cooldown_cards[combo_index] == null:
+			_pending_lane_ready[combo_index] = true
+	if _all_pending_lanes_ready():
+		_apply_pending_configuration()
+	return true
+
+
+func has_pending_configuration() -> bool:
+	return _pending_deck != null and _pending_cycle != null
+
+
 func tick(delta: float, attack_speed: float = 1.0) -> void:
 	if not _running:
 		return
 	for combo_index in range(_cycle.combos.size()):
 		_remaining[combo_index] -= delta
+		if has_pending_configuration() and _pending_lane_ready[combo_index]:
+			continue
+		if has_pending_configuration() and _remaining[combo_index] <= 0.0 and _card_indices[combo_index] == 0 and _cooldown_cards[combo_index] != null:
+			_pending_lane_ready[combo_index] = true
+			continue
 		var lane_safety := 0
 		while _remaining[combo_index] <= 0.0 and lane_safety < 32:
 			lane_safety += 1
@@ -65,7 +97,6 @@ func tick(delta: float, attack_speed: float = 1.0) -> void:
 				return
 			_active_combo_index = combo_index
 			_active_card_index = card_index
-			# Each combo is an independent Fire & Forget lane. Only cards inside the same lane wait for one another.
 			if _execute.is_valid():
 				_execute.call(card)
 			card_executed.emit(card, combo_index, card_index)
@@ -77,6 +108,34 @@ func tick(delta: float, attack_speed: float = 1.0) -> void:
 			_card_indices[combo_index] = (card_index + 1) % combo.card_instance_ids.size()
 			if _card_indices[combo_index] == 0:
 				combo_changed.emit(combo_index)
+				if has_pending_configuration():
+					if _remaining[combo_index] <= 0.0:
+						_pending_lane_ready[combo_index] = true
+					break
+	if has_pending_configuration() and _all_pending_lanes_ready():
+		_apply_pending_configuration()
+
+
+func _all_pending_lanes_ready() -> bool:
+	return has_pending_configuration() and not _pending_lane_ready.is_empty() and _pending_lane_ready.all(func(value: bool): return value)
+
+
+func _apply_pending_configuration() -> void:
+	var next_deck := _pending_deck
+	var next_cycle := _pending_cycle
+	var was_running := _running
+	_deck = next_deck
+	_cycle = next_cycle
+	_reset_lane_state(_cycle.combos.size())
+	_clear_pending_configuration()
+	_running = was_running
+	configuration_applied.emit(_deck, _cycle)
+
+
+func _clear_pending_configuration() -> void:
+	_pending_deck = null
+	_pending_cycle = null
+	_pending_lane_ready.clear()
 
 
 func current_position() -> Vector2i:
@@ -116,6 +175,7 @@ func cooldown_snapshot() -> Dictionary:
 		if int(snapshot["combo_index"]) == _active_combo_index:
 			return snapshot
 	return snapshots[0]
+
 
 static func lane_label(index: int) -> String:
 	var number := index + 1

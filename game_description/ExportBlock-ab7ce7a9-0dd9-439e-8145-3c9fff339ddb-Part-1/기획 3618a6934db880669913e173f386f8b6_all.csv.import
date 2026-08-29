@@ -1,0 +1,17 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://ig8pp3myrarq"
+
+[deps]
+
+files=["res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.Assignee.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.검토자.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.상태.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.생성 일시.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.생성자.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.최종 업데이트 시간.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.최종 편집자:.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.카테고리.translation"]
+
+source_file="res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.csv"
+dest_files=["res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.Assignee.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.검토자.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.상태.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.생성 일시.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.생성자.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.최종 업데이트 시간.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.최종 편집자:.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/기획 3618a6934db880669913e173f386f8b6_all.카테고리.translation"]
+
+[params]
+
+compress=true
+delimiter=0

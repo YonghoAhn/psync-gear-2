@@ -1,0 +1,17 @@
+[remap]
+
+importer="csv_translation"
+type="Translation"
+uid="uid://cowhw7q5aj3v2"
+
+[deps]
+
+files=["res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.큰 카테고리.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.작은 카테고리.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.카드군.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.희귀도.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.카테고리.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.키워드/태그.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.사용타입.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.코스트.translation"]
+
+source_file="res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.csv"
+dest_files=["res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.큰 카테고리.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.작은 카테고리.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.카드군.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.희귀도.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.카테고리.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.키워드/태그.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.사용타입.translation", "res://game_description/ExportBlock-ab7ce7a9-0dd9-439e-8145-3c9fff339ddb-Part-1/냉병기 카드 목록 3628a6934db880e6b9abd7fad3edf9f2.코스트.translation"]
+
+[params]
+
+compress=true
+delimiter=0

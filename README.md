@@ -1,6 +1,15 @@
 # Carbo
 
+**Godot 4.5 / GDScript real-time action deckbuilder vertical slice.**
+
 Godot 4.5 기반의 실시간 액션 덱빌더 수직 슬라이스입니다. 덱의 모든 카드를 최대 3개 콤보 레인에 배치하며, 각 콤보는 내부 카드 순서를 유지한 채 서로 독립적으로 병렬 반복됩니다.
+
+## 기술 스택
+
+- Godot 4.5
+- GDScript
+- 데이터 기반 카드 / 적 / 노드 구성
+- headless unit / integration tests
 
 ## 실행
 
@@ -49,3 +58,7 @@ Godot_v4.5.1-stable_win64_console.exe --headless --path . --script res://tests/s
 - 시작 UI, 전투 HUD, 결과 화면
 
 상세 재작업 근거와 subtask는 `REWORK_PLAN.md`에 기록되어 있습니다.
+
+## 상태
+
+현재 저장소는 플레이 가능한 수직 슬라이스와 시스템 재작업 결과를 보존한 프로젝트 스냅샷입니다. 구현 범위와 남은 작업은 `IMPLEMENTATION_STATUS.md`, `REWORK_PLAN.md`, `UI_REWORK_EXECUTION_PLAN.md`에서 확인할 수 있습니다.
